@@ -1,0 +1,4 @@
+# 运行依赖
+PyMySQL>=1.1
+psycopg2-binary>=2.9
+openpyxl>=3.1
