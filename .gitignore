@@ -1,0 +1,14 @@
+# Python缓存
+__pycache__/
+*.pyc
+
+# 虚拟环境
+.venv/
+venv/
+.python-version
+
+# VS Code配置
+.vscode/
+
+# 设置
+data/json/config.json
