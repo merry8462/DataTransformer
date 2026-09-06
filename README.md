@@ -118,20 +118,25 @@ build\DataTransformer.exe
 | 层级 | 对应关系 | 示例 |
 | :---: | :--- | :--- |
 | 数据库名 | Excel/JSON 文件名 == CSV 目录名 | `xxx.xlsx` / `xxx.json` / `xxx/` |
-| 表名 | Excel Sheet 名 == JSON 一级参数 == CSV 目录下的 .csv 文件名 | `"info"` → `xxx/info.csv` |
-| 字段名 | Excel 首行单元格 == JSON 二级参数 == CSV 表头单元格 | `"Id"`、`"Name"`、`"CreateTime"` |
+| 表名 | Excel Sheet 名 == JSON 一级键 == CSV 目录下的 .csv 文件名 | `"info"` → `xxx/info.csv` |
+| 字段名 | Excel 首行单元格 == JSON HeaderFields == CSV 表头单元格 | `"Id"`、`"Name"`、`"CreateTime"` |
 
-JSON 采用**列数组**结构：
+JSON 采用**表头 + 行记录**结构：
 
 ```json
 {
     "info": {
-        "Id": [1, 2, 3],
-        "Name": ["张三", "李四", "王五"],
-        "CreateTime": ["2026-08-29 21:32:35"]
+        "HeaderFields": ["Id", "Name", "CreateTime"],
+        "Data": {
+            "Row1": [1, "张三", "2026-08-29 21:32:35"],
+            "Row2": [2, "李四", "2026-08-29 21:32:36"]
+        }
     }
 }
 ```
+
+> `HeaderFields` 为字段名列表，`Data` 中的 `RowN` 为第 N 行数据数组（行号从 1 开始）。
+> 旧版**列数组**结构（`{"字段名": [值...]}`）仍可正常读取，向后兼容。
 
 
 # 启动参数
