@@ -86,6 +86,20 @@ build\DataTransformer.exe
 
 > onefile 打包失败时可删除脚本中的 `--onefile` 参数，改为目录模式分发（`build\DataTransformer.dist\DataTransformer.exe`）。
 
+> **分发前务必核对产物**：`build\DataTransformer.exe` 应为 **约 37–39 MB 的单文件**（当前构建约 38,662,656 字节）。
+> 若目标机器上只显示 **219 KB** 左右的 `DataTransformer.exe`，说明文件传输被截断，或只复制了目录/启动器产物：
+>
+> - **onefile 模式**：复制**完整**的 `build\DataTransformer.exe`（建议先压缩为 zip 再传输），并在目标机核对文件大小与 SHA-256；
+> - **目录模式**（删除了 `--onefile`）：必须复制**整个 `build\DataTransformer.dist` 文件夹**，只复制其中的 `.exe` 无法运行；
+> - `build_exe.bat` 现在会在打包后自动校验大小并打印 SHA-256。
+>
+> 目标机验证：
+>
+> ```powershell
+> Get-FileHash .\DataTransformer.exe -Algorithm SHA256
+> .\DataTransformer.exe --selftest
+> ```
+
 
 # 功能说明
 
@@ -107,6 +121,8 @@ build\DataTransformer.exe
 - **大批量低内存**：服务端流式游标 + 批量入库，实测百万行级数据稳定导入导出；
 - **自动建表**：按前 200 行采样推断字段类型，字符串列统一使用 TEXT，避免 "value too long" 写入失败；
 - **连接配置记忆**：密码与数据库名自动记忆，下次启动自动填入；
+- **连接异常友好提示**：主机/端口/用户名/密码/数据库名错误自动识别并弹出中文定位提示（同时保留原始错误）；
+- **按钮状态联动**：输入/输出未就绪、数据库信息未填全、未连接或任务执行中时，相关按钮自动置灰，防止重复操作；
 - **一键自检**：内置 `--selftest`，验证驱动、引擎与数据库连通性；
 - **安全防注入**：表名/字段名白名单校验并加引用符（MySQL 反引号 / PostgreSQL 双引号）。
 

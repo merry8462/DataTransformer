@@ -275,6 +275,69 @@ ADAPTERS = {
 }
 
 
+def describe_db_error(exc, cfg=None, adapter=None):
+    """把数据库/网络异常翻译成便于用户定位的中文提示(不吞掉原始错误)。"""
+    raw = str(exc)
+    low = raw.lower()
+    cfg = cfg or {}
+    host = cfg.get("host") or "?"
+    port = cfg.get("port") or "?"
+    name = adapter.NAME if adapter is not None else ""
+
+    if name == "MySQL":
+        errno = exc.args[0] if (getattr(exc, "args", None)
+                                and isinstance(exc.args[0], int)) else None
+        if errno == 1130:
+            return (
+                f"MySQL 服务器拒绝了客户端主机 {host!r} 的连接。\n"
+                "请确认该主机是否在 MySQL 用户授权范围内(例如用户需要以 "
+                "'用户名'@'%' 或 '用户名'@'该IP' 形式授权)。\n"
+                f"原始错误: {raw}"
+            )
+        if errno == 1045:
+            return f"MySQL 用户名或密码错误。\n请检查【用户名】【密码】。\n原始错误: {raw}"
+        if errno == 1044:
+            return f"MySQL 当前用户没有访问【数据库】的权限。\n请检查数据库名与用户授权。\n原始错误: {raw}"
+        if errno == 1049:
+            return f"MySQL 数据库不存在。\n请检查【数据库】名称。\n原始错误: {raw}"
+        if errno in (2002, 2003):
+            return (
+                f"无法连接 MySQL 服务器 {host}:{port}。\n"
+                "请检查【主机】【端口】是否正确、MySQL 服务是否启动、防火墙是否放行。\n"
+                f"原始错误: {raw}"
+            )
+        if "access denied" in low or "password" in low:
+            return f"MySQL 用户名或密码错误。\n请检查【用户名】【密码】。\n原始错误: {raw}"
+        if "unknown database" in low:
+            return f"MySQL 数据库不存在。\n请检查【数据库】名称。\n原始错误: {raw}"
+
+    elif name == "PostgreSQL":
+        pgcode = getattr(exc, "pgcode", None)
+        if pgcode == "28P01" or "password authentication failed" in low:
+            return f"PostgreSQL 用户名或密码错误。\n请检查【用户名】【密码】。\n原始错误: {raw}"
+        if pgcode == "3D000" or "does not exist" in low:
+            return f"PostgreSQL 数据库不存在。\n请检查【数据库】名称。\n原始错误: {raw}"
+        if pgcode == "28000" or "no pg_hba.conf" in low:
+            return f"PostgreSQL 登录被拒绝(认证方式不允许)。\n请检查用户与 pg_hba.conf。\n原始错误: {raw}"
+        if "could not connect" in low or "connection refused" in low:
+            return (
+                f"无法连接 PostgreSQL 服务器 {host}:{port}。\n"
+                "请检查【主机】【端口】、服务状态与防火墙。\n"
+                f"原始错误: {raw}"
+            )
+
+    if isinstance(exc, (ValueError, TypeError)):
+        # 校验类错误(connect_db 已生成中文提示)直接展示
+        return raw
+    if any(key in low for key in ("timed out", "timeout", "connect timeout")):
+        return f"连接 {host}:{port} 超时。\n请检查主机/端口/网络/防火墙。\n原始错误: {raw}"
+    if "socket.gaierror" in type(exc).__name__.lower() or "name or service not known" in low:
+        return f"主机名解析失败:{host!r}。\n请检查【主机】名称。\n原始错误: {raw}"
+    if "refused" in low:
+        return f"连接被拒绝:{host}:{port}。\n请检查【端口】与服务是否启动。\n原始错误: {raw}"
+    return raw
+
+
 # ---------------------------------------------------------------------------
 # Excel 工具函数(openpyxl 流式模式)
 # ---------------------------------------------------------------------------
@@ -527,7 +590,7 @@ def write_json_file(path, top_key, columns, rows, mode="replace", log=None):
             doc = old
     with open(path, "w", encoding="utf-8") as fp:
         json.dump(doc, fp, ensure_ascii=False, indent=4)
-    return len(rows)
+    return len(doc[top_key]["Data"])
 
 
 def write_excel_multi_file(path, tables, mode="replace", log=None):
@@ -733,7 +796,11 @@ def load_excel_stream(path, sheet):
     except StopIteration:
         wb.close()
         raise ValueError("工作表为空,无法读取")
-    header = parse_header(raw_header)
+    try:
+        header = parse_header(raw_header)
+    except Exception:
+        wb.close()
+        raise
 
     def gen():
         try:
@@ -1239,6 +1306,7 @@ class App(QMainWindow):
         self._load_config()
         self.on_input_mode_changed()
         self.on_output_mode_changed()
+        self._update_ui_state()
 
     # ------------------------------------------------------------------ 变量
     def _build_vars(self):
@@ -1359,10 +1427,10 @@ class App(QMainWindow):
         self.tree_select = HierTableSelect(text="选择数据表与字段(层级勾选)")
         self.tree_select.set_command(self.on_tree_confirmed)
         sql_lay.addWidget(self.tree_select, 0, 1)
-        refresh_btn = QPushButton("刷新表")
-        refresh_btn.setObjectName("teal")
-        refresh_btn.clicked.connect(self.on_refresh_tables)
-        sql_lay.addWidget(refresh_btn, 0, 2)
+        self.refresh_btn = QPushButton("刷新表")
+        self.refresh_btn.setObjectName("teal")
+        self.refresh_btn.clicked.connect(self.on_refresh_tables)
+        sql_lay.addWidget(self.refresh_btn, 0, 2)
         hint = QLabel("第一层勾选数据表(可多选),第二层分别勾选每张表的导出字段")
         hint.setObjectName("muted")
         sql_lay.addWidget(hint, 1, 1, 1, 2)
@@ -1376,10 +1444,10 @@ class App(QMainWindow):
         file_lay.addWidget(QLabel("输入文件:"), 0, 0)
         self.in_file_edit = QLineEdit()
         file_lay.addWidget(self.in_file_edit, 0, 1)
-        pick_btn = QPushButton("选择文件...")
-        pick_btn.setObjectName("teal")
-        pick_btn.clicked.connect(self.on_pick_input_file)
-        file_lay.addWidget(pick_btn, 0, 2)
+        self.pick_btn = QPushButton("选择文件...")
+        self.pick_btn.setObjectName("teal")
+        self.pick_btn.clicked.connect(self.on_pick_input_file)
+        file_lay.addWidget(self.pick_btn, 0, 2)
         file_lay.setColumnStretch(1, 1)
         lay.addWidget(self.src_file_frame)
 
@@ -1477,15 +1545,15 @@ class App(QMainWindow):
         db_lay.addWidget(self.timeout_edit, 1, 5)
 
         btn_box = QHBoxLayout()
-        test_btn = QPushButton("测试连接"); test_btn.setObjectName("amber")
-        test_btn.clicked.connect(self.on_test_connection)
-        conn_btn = QPushButton("连接并加载表"); conn_btn.setObjectName("blue")
-        conn_btn.clicked.connect(self.on_connect)
-        disc_btn = QPushButton("断开")
-        disc_btn.clicked.connect(self.disconnect)
-        btn_box.addWidget(test_btn)
-        btn_box.addWidget(conn_btn)
-        btn_box.addWidget(disc_btn)
+        self.test_btn = QPushButton("测试连接"); self.test_btn.setObjectName("amber")
+        self.test_btn.clicked.connect(self.on_test_connection)
+        self.conn_btn = QPushButton("连接并加载表"); self.conn_btn.setObjectName("blue")
+        self.conn_btn.clicked.connect(self.on_connect)
+        self.disc_btn = QPushButton("断开")
+        self.disc_btn.clicked.connect(self.disconnect)
+        btn_box.addWidget(self.test_btn)
+        btn_box.addWidget(self.conn_btn)
+        btn_box.addWidget(self.disc_btn)
         btn_box.addStretch(1)
         db_lay.addLayout(btn_box, 1, 6, 1, 2)
         db_lay.setColumnStretch(3, 1)
@@ -1568,6 +1636,12 @@ class App(QMainWindow):
         self.in_key_combo.currentTextChanged.connect(self.on_in_key_selected)
         self.in_section_combo.currentTextChanged.connect(self.on_in_section_selected)
 
+        # 连接参数 / 输入文件变化时,刷新按钮置灰/亮起状态
+        for edit in (self.host_edit, self.port_edit, self.user_edit,
+                     self.pwd_edit, self.database_edit, self.timeout_edit,
+                     self.in_file_edit):
+            edit.textChanged.connect(lambda *_: self._update_ui_state())
+
     # ------------------------------------------------------- 线程 / 消息桥
     def log(self, message, level="info"):
         self.bridge.log_s.emit(str(message), level)
@@ -1585,7 +1659,7 @@ class App(QMainWindow):
 
     def _on_log(self, message, level):
         color = LOG_COLORS.get(level, LOG_COLORS["info"])
-        esc = html.escape(message)
+        esc = html.escape(message).replace("\n", "<br>")
         self.log_text.appendHtml(f'<span style="color:{color};">{esc}</span>')
 
     def _on_status(self, message, connected):
@@ -1603,14 +1677,18 @@ class App(QMainWindow):
         self._busy = True
         self.status_chip.setText("运行中...")
         self._set_chip_state("busy")
+        self._update_ui_state()
+        cfg = self.get_cfg()
+        adapter = self.adapter
 
         def worker():
             try:
                 fn()
             except Exception as exc:  # noqa: BLE001
+                human = describe_db_error(exc, cfg, adapter)
                 self.log(f"发生错误: {exc}", "err")
                 self.log(traceback.format_exc(), "err")
-                self.bridge.error_s.emit(str(exc))
+                self.bridge.error_s.emit(human)
             finally:
                 self.bridge.done_s.emit()
 
@@ -1623,6 +1701,7 @@ class App(QMainWindow):
         self.status_chip.setText(
             f"{'已连接数据库' if connected else '未连接数据库'} | 就绪")
         self._set_chip_state("ok" if connected else "idle")
+        self._update_ui_state()
 
     def _on_tree_data(self, table_columns):
         self.tree_select.set_tables(table_columns)
@@ -1636,6 +1715,7 @@ class App(QMainWindow):
         if names:
             self.in_sheet_combo.setCurrentIndex(0)
             self.on_in_sheet_selected()
+        self._update_ui_state()
 
     def _on_excel_tree_data(self, sheet_headers):
         """Excel 文件解析完成:{Sheet名: [表头字段...]}。"""
@@ -1650,6 +1730,7 @@ class App(QMainWindow):
         if keys:
             self.in_key_combo.setCurrentIndex(0)
             self.on_in_key_selected()
+        self._update_ui_state()
 
     def _on_csv_sections(self, names):
         self.in_section_combo.blockSignals(True)
@@ -1661,6 +1742,7 @@ class App(QMainWindow):
         self.in_section_combo.blockSignals(False)
         self.in_section_combo.setCurrentIndex(0)
         self.on_in_section_selected()
+        self._update_ui_state()
 
     # ------------------------------------------------------------- 模式切换
     @staticmethod
@@ -1686,6 +1768,7 @@ class App(QMainWindow):
         self._sync_db_card()
         self._sync_excel_tree()
         self._auto_fill_output_names()
+        self._update_ui_state()
         self.log(f"输入格式切换为: {INPUT_LABELS[key]}", "info")
 
     def on_output_mode_changed(self, *_):
@@ -1699,11 +1782,70 @@ class App(QMainWindow):
         self._sync_db_card()
         self._sync_excel_tree()
         self._auto_fill_output_names()
+        self._update_ui_state()
         self.log(f"输出格式切换为: {OUTPUT_LABELS[key]}", "info")
 
     def _sync_db_card(self):
         need_db = self.input_key() == "SQL" or self.output_key() == "SQL"
         self.db_card.setVisible(need_db)
+
+    def _convert_ready(self, in_key, out_key):
+        """判断“开始转换”按钮是否可点击:输入/输出都就绪才亮起。"""
+        if in_key == "SQL":
+            return bool(self.selected_columns)
+        file_ok = bool(self.in_file_edit.text()) and os.path.isfile(
+            self.in_file_edit.text())
+        if not file_ok:
+            return False
+        if in_key == "Excel":
+            return bool(self.excel_selection) if out_key == "SQL" else bool(
+                self.in_sheet_combo.currentText())
+        if in_key == "JSON":
+            return bool(self.in_key_combo.currentText())
+        if in_key == "CSV":
+            return bool(self.in_section_combo.currentText())
+        return False
+
+    def _update_ui_state(self):
+        """统一刷新按钮/输入项的置灰(不可点击)与亮起(可点击)状态。
+
+        规则:
+        * 任务运行中 → 所有操作按钮与输入项置灰;
+        * 未填写完整 主机/用户名/数据库 → 测试连接、连接并加载表 置灰;
+        * 未连接 → 断开 置灰;
+        * 输入/输出未就绪 → 开始转换 置灰;
+        * 层级勾选控件只要还没加载过数据 → 置灰。
+        """
+        busy = self._busy
+        in_key = self.input_key()
+        out_key = self.output_key()
+        connected = self.conn is not None
+        need_db = in_key == "SQL" or out_key == "SQL"
+        db_ready = bool(self.host_edit.text().strip()
+                        and self.user_edit.text().strip()
+                        and self.database_edit.text().strip())
+        can_db = connected or db_ready
+
+        self.test_btn.setEnabled(not busy and need_db and db_ready)
+        self.conn_btn.setEnabled(not busy and need_db and db_ready)
+        self.disc_btn.setEnabled(not busy and connected)
+        self.refresh_btn.setEnabled(not busy and in_key == "SQL" and can_db)
+        self.pick_btn.setEnabled(not busy and in_key in ("Excel", "JSON", "CSV"))
+        self.tree_select.button.setEnabled(not busy and bool(self.tree_select.tables))
+        self.excel_tree.button.setEnabled(not busy and bool(self.excel_tree.tables))
+        self.convert_btn.setEnabled(
+            not busy and (can_db if need_db else True)
+            and self._convert_ready(in_key, out_key))
+
+        # 任务执行期间禁止修改配置/输入,避免后台任务读取到中途变化的数据
+        for widget in (self.input_combo, self.output_combo, self.db_type_combo,
+                       self.host_edit, self.port_edit, self.user_edit,
+                       self.pwd_edit, self.database_edit, self.timeout_edit,
+                       self.in_file_edit, self.in_sheet_combo, self.in_key_combo,
+                       self.in_section_combo, self.in_delim_combo, self.in_enc_combo,
+                       self.out_table_edit, self.out_mode_combo, self.batch_spin,
+                       self.out_sheet_edit, self.out_delim_combo, self.out_enc_combo):
+            widget.setEnabled(not busy)
 
     def _auto_fill_output_names(self):
         in_key = self.input_key()
@@ -1755,10 +1897,32 @@ class App(QMainWindow):
             "timeout": self.timeout_edit.text().strip() or "10",
         }
 
-    def connect_db(self):
-        cfg = self.get_cfg()
-        if not cfg["host"] or not cfg["user"] or not cfg["database"]:
-            raise ValueError("请填写【主机】【用户名】【数据库】后再连接")
+    def connect_db(self, cfg=None):
+        cfg = cfg or self.get_cfg()
+        if missing := [label for label, key in (
+                ("主机", "host"), ("用户名", "user"), ("数据库", "database"))
+                if not cfg[key]]:
+            raise ValueError("请填写" + "、".join(missing) + "后再连接")
+        try:
+            port = int(cfg["port"] or str(self.adapter.DEFAULT_PORT))
+            if not 1 <= port <= 65535:
+                raise ValueError("端口号必须在 1-65535 之间")
+            cfg["port"] = str(port)
+        except ValueError as exc:
+            if "端口号必须在" in str(exc):
+                raise
+            raise ValueError(
+                f"端口号无效:{cfg['port']!r},请输入 1-65535 的整数") from exc
+        try:
+            timeout = int(cfg.get("timeout") or "10")
+            if not 1 <= timeout <= 3600:
+                raise ValueError("超时秒数必须在 1-3600 之间")
+            cfg["timeout"] = str(timeout)
+        except ValueError as exc:
+            if "超时秒数必须在" in str(exc):
+                raise
+            raise ValueError(
+                f"超时秒数无效:{cfg.get('timeout')!r},请输入 1-3600 的整数") from exc
         self._disconnect_conn()
         self.conn = self.adapter.connect(cfg)
         self._save_config()
@@ -1767,7 +1931,8 @@ class App(QMainWindow):
     def _load_config(self):
         try:
             data = json.loads(config_file_path().read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as exc:
+            self.log(f"读取记忆配置失败(使用空白配置): {exc}", "warn")
             return
         if isinstance(data, dict):
             if data.get("password"):
@@ -1775,6 +1940,7 @@ class App(QMainWindow):
             if data.get("database"):
                 self.database_edit.setText(str(data["database"]))
             self.log(f"已载入记忆的连接配置(密码/数据库名): {config_file_path()}", "info")
+        self._update_ui_state()
 
     def _save_config(self):
         try:
@@ -1800,6 +1966,7 @@ class App(QMainWindow):
         self._disconnect_conn()
         self.status_chip.setText("未连接数据库 | 就绪")
         self._set_chip_state("idle")
+        self._update_ui_state()
 
     def _ping(self):
         try:
@@ -1810,14 +1977,14 @@ class App(QMainWindow):
         except Exception:
             return False
 
-    def ensure_conn(self):
+    def ensure_conn(self, cfg=None):
         try:
             if self.conn is not None and self._ping():
                 return self.conn
         except Exception:
             pass
         self._disconnect_conn()
-        version = self.connect_db()
+        version = self.connect_db(cfg)
         self.log(f"已自动连接 {self.adapter.NAME} {version}", "ok")
         self.set_status(f"已连接 {self.adapter.NAME} {version}", connected=True)
         return self.conn
@@ -1831,8 +1998,10 @@ class App(QMainWindow):
                  f"{self.adapter.DEFAULT_PORT})", "info")
 
     def on_test_connection(self):
+        cfg = self.get_cfg()
+
         def work():
-            version = self.connect_db()
+            version = self.connect_db(cfg)
             self.log(f"连接成功: {self.adapter.NAME} {version}", "ok")
             self.bridge.info_s.emit(f"连接成功!\n{self.adapter.NAME} {version}")
             self._disconnect_conn()
@@ -1849,23 +2018,35 @@ class App(QMainWindow):
         return table_columns
 
     def on_connect(self):
+        cfg = self.get_cfg()
+
         def work():
-            version = self.connect_db()
-            tables = self.adapter.list_tables(self.conn)
-            self.log(f"连接成功: {self.adapter.NAME} {version},共 {len(tables)} 张表", "ok")
-            self.log("正在加载字段结构 ...", "info")
-            table_columns = self._load_table_columns(self.conn, tables)
-            self.bridge.tree_s.emit(table_columns)
-            self.set_status(f"已连接 {self.adapter.NAME} {version}", connected=True)
+            try:
+                version = self.connect_db(cfg)
+                tables = self.adapter.list_tables(self.conn)
+                self.log(f"连接成功: {self.adapter.NAME} {version},共 {len(tables)} 张表", "ok")
+                self.log("正在加载字段结构 ...", "info")
+                table_columns = self._load_table_columns(self.conn, tables)
+                self.bridge.tree_s.emit(table_columns)
+                self.set_status(f"已连接 {self.adapter.NAME} {version}", connected=True)
+            except Exception:
+                self._disconnect_conn()
+                raise
         self.run_task(work)
 
     def on_refresh_tables(self):
+        cfg = self.get_cfg()
+
         def work():
-            conn = self.ensure_conn()
-            tables = self.adapter.list_tables(conn)
-            self.log(f"共发现 {len(tables)} 张表,正在加载字段结构 ...", "info")
-            table_columns = self._load_table_columns(conn, tables)
-            self.bridge.tree_s.emit(table_columns)
+            try:
+                conn = self.ensure_conn(cfg)
+                tables = self.adapter.list_tables(conn)
+                self.log(f"共发现 {len(tables)} 张表,正在加载字段结构 ...", "info")
+                table_columns = self._load_table_columns(conn, tables)
+                self.bridge.tree_s.emit(table_columns)
+            except Exception:
+                self._disconnect_conn()
+                raise
         self.run_task(work)
 
     def on_tree_confirmed(self, selection):
@@ -1878,6 +2059,7 @@ class App(QMainWindow):
                      f"{sum(len(c) for c in self.selected_columns.values())} 个字段", "ok")
         else:
             self.log("未勾选任何表/字段", "warn")
+        self._update_ui_state()
 
     def on_pick_input_file(self):
         key = self.input_key()
@@ -1892,6 +2074,7 @@ class App(QMainWindow):
             return
         self.in_file_edit.setText(path)
         self._auto_fill_output_names()
+        self._update_ui_state()
 
         if key == "Excel":
             def work():
@@ -1922,9 +2105,10 @@ class App(QMainWindow):
                 self.bridge.keys_s.emit(keys)
             self.run_task(work)
         elif key == "CSV":
+            delim = DELIM_LABELS[self.in_delim_combo.currentText()]
+            enc = ENC_LABELS[self.in_enc_combo.currentText()]
+
             def work():
-                delim = DELIM_LABELS[self.in_delim_combo.currentText()]
-                enc = ENC_LABELS[self.in_enc_combo.currentText()]
                 sections = read_csv_sections(path, delim, enc)
                 if sections is None:
                     header = read_csv_header(path, delim, enc)
@@ -1938,12 +2122,15 @@ class App(QMainWindow):
 
     def on_in_sheet_selected(self, *_):
         self._auto_fill_output_names()
+        self._update_ui_state()
 
     def on_in_key_selected(self, *_):
         self._auto_fill_output_names()
+        self._update_ui_state()
 
     def on_in_section_selected(self, *_):
         self._auto_fill_output_names()
+        self._update_ui_state()
 
     def on_excel_tree_confirmed(self, selection):
         """Excel→SQL 层级勾选确认:selection = {Sheet名: [勾选字段...]}。"""
@@ -1959,6 +2146,7 @@ class App(QMainWindow):
                      f"{sum(len(c) for c in self.excel_selection.values())} 个字段", "ok")
         else:
             self.log("Excel 未勾选任何 Sheet/字段", "warn")
+        self._update_ui_state()
 
     def _sync_excel_tree(self):
         """仅当 输入=Excel 且 输出=SQL 时显示层级勾选控件。"""
@@ -2078,7 +2266,7 @@ class App(QMainWindow):
         except Exception:
             pass
 
-    def _run_multi_sql(self, conn, adapter, sources, out_key, output):
+    def _run_multi_sql(self, conn, adapter, sources, out_key, output, cfg=None):
         total_all = 0
         if out_key == "Excel":
             def tables():
@@ -2125,7 +2313,7 @@ class App(QMainWindow):
                 f"导出完成,共 {total_all:,} 行,{len(sources)} 个 CSV 文件")
         elif out_key == "SQL":
             mode, batch = output["mode"], output["batch"]
-            conn_out = adapter.connect(self.get_cfg())
+            conn_out = adapter.connect(cfg or self.get_cfg())
             try:
                 for src, header, rows, cur in self._iter_sql_sources(
                         conn, adapter, sources):
@@ -2240,7 +2428,8 @@ class App(QMainWindow):
                 try:
                     conn = self.ensure_conn()
                 except Exception as exc:
-                    QMessageBox.critical(self, "错误", f"数据库连接失败: {exc}")
+                    QMessageBox.critical(
+                        self, "错误", describe_db_error(exc, self.get_cfg(), adapter))
                     return
                 decisions = {}
                 for sheet in self.excel_sheets:
@@ -2306,18 +2495,27 @@ class App(QMainWindow):
                       "key": key_name, "delimiter": delim, "encoding": enc}
 
         # ---------- 后台执行管道 ----------
+        conn_cfg = self.get_cfg()   # 提前捕获,避免后台线程直接读取界面控件
+        in_path = self.in_file_edit.text()
+        in_sheet_name = self.in_sheet_combo.currentText()
+        in_key_name = self.in_key_combo.currentText()
+        in_section_name = self.in_section_combo.currentText().strip()
+        in_delim = DELIM_LABELS[self.in_delim_combo.currentText()]
+        in_enc = ENC_LABELS[self.in_enc_combo.currentText()]
+
         def work():
-            conn = self.ensure_conn() if (in_key == "SQL" or out_key == "SQL") else None
+            conn = self.ensure_conn(conn_cfg) if (in_key == "SQL" or out_key == "SQL") else None
             cur = None
             header = rows = None
             try:
                 if excel_to_sql:
-                    self._run_excel_to_sql(conn, adapter, self.in_file_edit.text(),
+                    self._run_excel_to_sql(conn, adapter, in_path,
                                            self.excel_selection,
                                            output["decisions"], output["batch"])
                     return
                 if multi_sql or dir_csv:
-                    self._run_multi_sql(conn, adapter, sources, out_key, output)
+                    self._run_multi_sql(conn, adapter, sources, out_key, output,
+                                        conn_cfg)
                     return
 
                 # 1) 载入单输入源
@@ -2327,30 +2525,26 @@ class App(QMainWindow):
                     header, rows, cur = load_sql_stream(
                         conn, adapter, sources[0]["table"], sources[0]["columns"])
                 elif in_key == "Excel":
-                    self.log(f"读取 Excel: {self.in_file_edit.text()} "
-                             f"→ [{self.in_sheet_combo.currentText()}]", "head")
-                    header, rows = load_excel_stream(
-                        self.in_file_edit.text(), self.in_sheet_combo.currentText())
+                    self.log(f"读取 Excel: {in_path} "
+                             f"→ [{in_sheet_name}]", "head")
+                    header, rows = load_excel_stream(in_path, in_sheet_name)
                 elif in_key == "JSON":
-                    self.log(f"读取 JSON: {self.in_file_edit.text()} "
-                             f"→ 键[{self.in_key_combo.currentText()}]", "head")
-                    header, rows = load_json_stream(
-                        self.in_file_edit.text(), self.in_key_combo.currentText())
+                    self.log(f"读取 JSON: {in_path} "
+                             f"→ 键[{in_key_name}]", "head")
+                    header, rows = load_json_stream(in_path, in_key_name)
                 elif in_key == "CSV":
-                    delim = DELIM_LABELS[self.in_delim_combo.currentText()]
-                    enc = ENC_LABELS[self.in_enc_combo.currentText()]
-                    section = self.in_section_combo.currentText().strip()
+                    section = in_section_name
                     if section and not section.startswith("("):
-                        self.log(f"读取分节 CSV: {self.in_file_edit.text()} "
+                        self.log(f"读取分节 CSV: {in_path} "
                                  f"→ [Sheet:{section}]", "head")
                         header, rows = load_csv_section(
-                            self.in_file_edit.text(), section, delim, enc,
+                            in_path, section, in_delim, in_enc,
                             parse=(out_key == "SQL"))
                     else:
-                        self.log(f"读取 CSV: {self.in_file_edit.text()}"
-                                 f"(分隔符 {delim!r},编码 {enc})", "head")
-                        header = read_csv_header(self.in_file_edit.text(), delim, enc)
-                        rows = iter_csv_rows(self.in_file_edit.text(), delim, enc,
+                        self.log(f"读取 CSV: {in_path}"
+                                 f"(分隔符 {in_delim!r},编码 {in_enc})", "head")
+                        header = read_csv_header(in_path, in_delim, in_enc)
+                        rows = iter_csv_rows(in_path, in_delim, in_enc,
                                              len(header), parse=(out_key == "SQL"))
                 self.log(f"共 {len(header)} 列: {header}", "info")
 
@@ -2371,7 +2565,7 @@ class App(QMainWindow):
                             for row in rows:
                                 yield list(row)
 
-                        conn_out = adapter.connect(self.get_cfg())
+                        conn_out = adapter.connect(conn_cfg)
                         try:
                             total = write_sql_table(
                                 conn_out, adapter, output["table"], header,
