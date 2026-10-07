@@ -1,0 +1,17 @@
+# 运行依赖(Windows GUI + Linux 命令行向导)
+# Linux 服务器只需核心依赖时,data_transformer.sh 会自动只安装:
+#   openpyxl pymysql psycopg2-binary pymongo questionary paramiko
+PyMySQL>=1.1
+psycopg2-binary>=2.9
+pymongo>=4.6
+openpyxl>=3.1
+PySide6>=6.6
+
+# Linux / macOS 终端交互式向导(动态选择 Input/Output 格式等)
+questionary>=2.0
+
+# SSH 隧道(连接远程服务器上的数据库;仅 SSH 功能需要)
+paramiko>=3.4
+
+# 测试(可选):python -m pytest tests/
+pytest>=8.0
