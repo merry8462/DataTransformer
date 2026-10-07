@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="images/img03.png" alt="DataTransformer 主界面" width="100%">
+<img src="images/img00.png" alt="DataTransformer 主界面" width="100%">
 
 <p>MySQL / PostgreSQL / MongoDB ↔ xlsx / csv / json 双向数据转换工具（Windows 图形界面 + Linux 终端向导）。</p>
 <p>长浮点数与高精度数值全程以 <code>Decimal</code> 保真，输出不出现科学计数法，并在写入后自动回读校验。</p>
@@ -17,42 +17,42 @@
 </div>
 
 自上而下依次是：标题与彩色分隔条 → 
-**SSH 隧道** → **① 输入配置** → **② 输出配置** → **④ 运行日志**
+**SSH 通道** → **① 输入配置** → **② 输出配置** → **④ 运行日志**
 → 底部状态栏。
 图中是一次 **MySQL → CSV 目录模式**导出刚完成的状态。
 
 
-## 数据库连接与 SSH 隧道
+## 数据库连接与 SSH 通道
 
 <div align="center">
-<img src="images/img02.png" alt="数据库连接卡片与 SSH 隧道卡片" width="100%">
+<img src="images/img02.png" alt="数据库连接卡片与 SSH 通道卡片" width="100%">
 </div>
 
 **数据库连接**卡片支持 MySQL / PostgreSQL / MongoDB；「端口」是可下拉、可手填的输入框，
 **留空即自动使用该类型的默认端口**（MySQL 3306 / PostgreSQL 5432 / MongoDB 27017）。
-最上方的 **SSH 隧道**卡片：勾选后填写的「主机 / 端口」是**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`），
-本机连接自动改走隧道端口；未连接时状态显示 `SSH 隧道:未连接`，连接后显示
+最上方的 **SSH 通道**卡片：勾选后填写的「主机 / 端口」是**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`），
+本机连接自动改走通道端口；未连接时状态显示 `SSH 通道:未连接`，连接后显示
 `127.0.0.1:<本地端口> → SSH 用户@主机:22 → 127.0.0.1:5432`。
 
 
-## 连接成功与隧道日志
+## 连接成功与通道日志
 
 <div align="center">
-<img src="images/img01.png" alt="连接成功提示与 SSH 隧道日志" width="100%">
+<img src="images/img01.png" alt="连接成功提示与 SSH 通道日志" width="100%">
 </div>
 
 点「测试连接」后弹窗给出服务端版本（PostgreSQL 18.6），日志区同时打印
-`SSH 隧道已建立: 127.0.0.1:55960 → SSH …@172.24.208.28:22 → 127.0.0.1:5432` 与
+`SSH 通道已建立: 127.0.0.1:55960 → SSH …@172.24.208.28:22 → 127.0.0.1:5432` 与
 `连接成功: PostgreSQL …`。图中的用户名、密码等敏感字段已打码，实际使用时按自己的环境填写。
 
 
-## 大表导出过程中的进度
+## 表格导与进度提示
 
 <div align="center">
-<img src="images/img04.png" alt="PostgreSQL 经 SSH 隧道导出 Excel 的进度" width="100%">
+<img src="images/img04.png" alt="PostgreSQL 经 SSH 通道导出 Excel 的进度" width="100%">
 </div>
 
-PostgreSQL（经 SSH 隧道）→ Excel：日志每 2 万行打印一次，
+PostgreSQL（经 SSH 通道）→ Excel：日志每 2 万行打印一次，
 执行期间所有输入框与操作按钮自动置灰，既防止中途改参数让后台任务读到“半截”配置，也防止重复点击。
 
 
@@ -74,7 +74,7 @@ PostgreSQL（经 SSH 隧道）→ Excel：日志每 2 万行打印一次，
 </div>
 
 选中 MongoDB 时，数据库卡片会多出 **连接 URI** 与 **认证库 authSource** 两行（其他类型自动隐藏）。
-图中经 SSH 隧道连接 `127.0.0.1:27017`、认证库，把集合导出为 `MyData.json`
+图中经 SSH 通道连接 `127.0.0.1:27017`、认证库，把集合导出为 `MyData.json`
 （一级键 `[VirtualProfile]`，共 4 行）；集合名 ↔ JSON 一级键、文档字段 ↔ 首行表头一一对应。
 
 
@@ -100,7 +100,7 @@ JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开�
 （图中导出到 `/home/.../Cty/VirtualData.csv`，共 20,000 行），底部状态栏显示「已连接数据库 | 就绪」。
 
 
-## 首次启动的自动依赖安装
+## 首次启动(自动安装依赖项)
 
 <div align="center">
 <img src="images/img08.png" alt="data_transformer.sh 首次运行自动创建虚拟环境" width="70%">
@@ -121,7 +121,7 @@ JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开�
 注意：**命令行向导本身不需要 PySide6**，无桌面环境的服务器用默认的 `./data_transformer.sh` 即可。
 
 
-## 终端向导：选择格式 → 连接 MongoDB → 层级勾选
+## 终端向导：选择格式 → 连接 MySQL or PostgreSQL or MongoDB → 数据库/表/集合/字段 的层级勾选
 
 <div align="center">
 <img src="images/img11.png" alt="终端向导:选择输入格式与 MongoDB 连接参数" width="100%">
@@ -195,7 +195,7 @@ DataTransformer/
 | PostgreSQL | psycopg2-binary ≥ 2.9 | 服务端命名游标（named cursor） |
 | MongoDB | pymongo ≥ 4.6 | Decimal128 精确数值读写 |
 | 表格文件 | openpyxl ≥ 3.1 | read_only / write_only 流式模式 |
-| SSH 隧道 | paramiko ≥ 3.4（+ cryptography） | 本地端口转发 |
+| SSH 通道 | paramiko ≥ 3.4（+ cryptography） | 本地端口转发 |
 | 打包 | Nuitka | 仅打包时需要 |
 | 测试 | pytest ≥ 8.0 | 可选 |
 
@@ -358,7 +358,7 @@ build\DataTransformer.exe
 - **层级勾选**：树形下拉框两层结构，第一层多选数据表 / 集合（或 Excel Sheet），第二层每张表独立勾选字段；
 - **长浮点数保真**：全程 `Decimal` 中转，不丢尾零、不截断有效数字、**输出不出现科学计数法**，写入后自动回读做「数值等值 + 文本等值」双重校验并输出差异报告（详见下文专项说明）；
 - **字段映射**：自动按同名映射（Sheet 名 ↔ 表名、首行表头 ↔ 数据库字段名），支持手动覆盖并做重名校验；
-- **SSH 隧道**：连接指定 IP 服务器上的 MySQL / PostgreSQL / MongoDB，无需在服务器上开放数据库端口；
+- **SSH 通道**：连接指定 IP 服务器上的 MySQL / PostgreSQL / MongoDB，无需在服务器上开放数据库端口；
 - **命令行向导**：`./data_transformer.sh` 通过 **questionary** 动态选择 Input/Output 格式、连接参数、表 / 集合与字段；
 - **Excel → SQL 层级导入**：目标表名与 Sheet 名一一对应；无同名表时自动按 Sheet 名新建，存在同名表时逐个选择 **覆盖写入 / 追加写入 / 跳过该表**；
 - **目录模式 CSV 导出**：目录名 = 数据库名，目录下每个表一个 `表名.csv`；
@@ -440,25 +440,25 @@ JSON 采用**表头 + 行记录**结构：
 # SSH 连接远程数据库
 
 针对「数据库只监听 `127.0.0.1`、必须先 SSH 登录服务器才能访问」的场景,程序内置 SSH 本地端口转发：
-勾选 **启用 SSH 隧道** 后,【数据库连接】里的主机/端口填写**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`）,
-本机连接会自动改走隧道端口,导入导出流程与本地数据库完全一致。
+勾选 **启用 SSH 通道** 后,【数据库连接】里的主机/端口填写**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`）,
+本机连接会自动改走通道端口,导入导出流程与本地数据库完全一致。
 
 
 ## 图形界面操作步骤
 
-1. 窗口最上方是【SSH 隧道】卡片（见 图 2），勾选 **启用 SSH 隧道**；
+1. 窗口最上方是【SSH 通道】卡片（见 图 2），勾选 **启用 SSH 通道**；
 2. 填写 SSH 主机/IP、端口（默认 22）、用户名、密码（本工具统一使用「用户名 + 密码」认证，
    命令行向导 / 引擎仍保留私钥参数，图形界面不提供私钥选择）；
 3. 点击 **连接 SSH**，状态区显示 `127.0.0.1:<本地端口> → SSH 用户@主机:22 → 127.0.0.1:5432`（见 图 3）；
 4. 回到【数据库连接】填写远程库的地址 / 端口 / 用户名 / 密码 / 数据库名，点击 **连接并加载表**；
 5. 之后按普通流程勾选「表 → 字段」，导出或导入即可（大表导出进度见 图 4、图 5）。
 
-> 隧道只监听本机 `127.0.0.1`,不会对外网暴露端口;点击 **断开 SSH** 或关闭程序会自动释放隧道。
+> 通道只监听本机 `127.0.0.1`,不会对外网暴露端口;点击 **断开 SSH** 或关闭程序会自动释放通道。
 
 
 ## 命令行向导
 
-`./data_transformer.sh` 在询问连接参数时会先问「是否通过 SSH 隧道连接远程服务器」,交互与图形界面一致;
+`./data_transformer.sh` 在询问连接参数时会先问「是否通过 SSH 通道连接远程服务器」,交互与图形界面一致;
 加 `--demo` 可直接预填上表参数（完整交互见 图 11、图 12）：
 
 ```bash
@@ -563,7 +563,7 @@ Linux / macOS: $XDG_CONFIG_HOME/DataTransformer/config.json（默认 ~/.config/D
   再按数据库方言加引用符（MySQL 反引号 / PostgreSQL 双引号），避免拼接 SQL 造成注入。
   因此 Excel Sheet 名与表头列名若含空格、括号、横线等字符，需要先重命名再导入数据库
   （导出为 JSON / CSV / Excel 不受此限制）；
-- **SSH 隧道**：本地监听地址固定为 `127.0.0.1`，不对局域网暴露端口；
+- **SSH 通道**：本地监听地址固定为 `127.0.0.1`，不对局域网暴露端口；
 - **配置权限**：Linux / macOS 下配置文件权限收紧为 `600`；
 - **CSV 公式注入**：导出的 CSV / Excel 会**原样保留**数据内容。若源数据中带有以 `=`、`+`、`-`、`@`
   开头的文本，直接用 Excel 打开时可能被当作公式执行——这是 Excel 的既有行为。处理不受信任的数据时，
@@ -584,7 +584,7 @@ python dt_core.py                   # 无界面自检(等价 --selftest),结果�
 | `tests/test_engine.py` | 长浮点数跨 xlsx / json / csv 往返、科学计数法归一化、保真校验阻断与放行、字段与名称映射、多表输出、跳过与目录模式、错误护栏 |
 | `tests/test_mongo.py` | MongoDB 值转换（Decimal128 / int64 溢出 / 嵌套结构 / 不安全键名）、`_id` 处理，以及**真实服务端**往返（本机无 mongod 时自动跳过） |
 | `tests/test_cli.py` | 命令行向导端到端交互（管道驱动）：完整流程、输出路径、取消不落盘、无栈回溯 |
-| `tests/test_gui.py` | 图形界面关键逻辑（离屏运行）：窗口构造、三种数据库配置切换、SSH 隧道改写连接目标、字段映射、层级勾选、进度条生命周期 |
+| `tests/test_gui.py` | 图形界面关键逻辑（离屏运行）：窗口构造、三种数据库配置切换、SSH 通道改写连接目标、字段映射、层级勾选、进度条生命周期 |
 
 > 集成测试需要真实环境：PostgreSQL / MySQL / MongoDB 用例在缺少服务或环境变量时会自动跳过，不会导致失败。
 
@@ -600,7 +600,7 @@ python dt_core.py                   # 无界面自检(等价 --selftest),结果�
 | `数值保真校验未通过` | 说明输出侧发生了精度丢失 / 尾零丢失 / 科学计数法；日志与弹窗会列出差异样例，请检查目标列类型（应使用 NUMERIC / DECIMAL 而非 DOUBLE）或改用文本列 |
 | MySQL/PostgreSQL 导入报 `value too long` | 目标表字符串列长度不足；自动建表已统一使用 TEXT，手工建表请把该列改宽 |
 | 中文乱码 | Windows 终端先执行 `chcp 65001`；CSV 编码选择 `UTF-8 with BOM` 或 `GBK` |
-| `无法连接 MongoDB ... ServerSelectionTimeoutError` | 检查 mongod 是否启动、端口与 `authSource`；远程场景可勾选 SSH 隧道 |
+| `无法连接 MongoDB ... ServerSelectionTimeoutError` | 检查 mongod 是否启动、端口与 `authSource`；远程场景可勾选 SSH 通道 |
 | 百万行数据导入很慢 | 调大「每批行数」（默认 1000，可设 5000~20000）；数据库侧注意 `max_allowed_packet`（MySQL）与磁盘 IO |
 
 
@@ -637,7 +637,7 @@ DataTransformer 主要使用以下项目：
 - [psycopg2](https://www.psycopg.org/)
 - [pymongo](https://pymongo.readthedocs.io/)（MongoDB）
 - [openpyxl](https://openpyxl.readthedocs.io/)
-- [paramiko](https://www.paramiko.org/)（SSH 隧道）
+- [paramiko](https://www.paramiko.org/)（SSH 通道）
 - [Nuitka](https://nuitka.net/)
 
 
