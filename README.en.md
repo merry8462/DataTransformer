@@ -248,7 +248,7 @@ The current version is **Ver1.1.6**; historical versions are archived in `Ver1.0
 
 **Requirements:**
 
-- Any mainstream distribution: Debian / Ubuntu, RHEL / CentOS / Rocky, Fedora, Arch / Manjaro, openSUSE, and macOS
+- Any mainstream distribution: Debian / Ubuntu / CentOS / / Fedora, and macOS
 - Python 3.8+ (the launcher probes `python3` / `python3.x` / `python`)
 
 **Usage:**
@@ -298,10 +298,8 @@ The script probes and can create a project-local `.venv` by itself; for manual i
 | Distribution | Install Python and venv | Install dependencies |
 | :--- | :--- | :--- |
 | Ubuntu / Debian | `sudo apt update && sudo apt install -y python3 python3-venv python3-pip` | `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` |
-| RHEL / CentOS / Rocky | `sudo dnf install -y python3 python3-pip` | as above (on CentOS 7 run `sudo yum install -y centos-release-scl` first) |
+| CentOS  | `sudo dnf install -y python3 python3-pip` | as above (on CentOS 7 run `sudo yum install -y centos-release-scl` first) |
 | Fedora | `sudo dnf install -y python3 python3-pip` | as above |
-| Arch / Manjaro | `sudo pacman -S --needed python python-pip` | as above |
-| openSUSE | `sudo zypper install -y python3 python3-pip` | as above |
 | macOS | `brew install python` | as above |
 
 > On a few distributions psycopg2 needs build dependencies: `sudo apt install -y libpq-dev` on Debian/Ubuntu,
@@ -724,7 +722,7 @@ python dt_core.py                           # headless self-test (same as --self
 - [x] Windows single-file executable built with Nuitka (`build_exe.bat`, validating size and SHA-256);
 - [x] Linux / macOS interactive terminal tool (`data_transformer.sh` → `dt_cli.py`) using **questionary** for dynamic
       format and parameter selection, no GUI required;
-- [x] Dependency installation and usage instructions for Ubuntu, Debian, Fedora, Arch and CentOS;
+- [x] Dependency installation and usage instructions for Ubuntu, Debian, Fedora and CentOS;
 - [x] MySQL, PostgreSQL and **MongoDB** support plus xlsx, csv and json files;
 - [x] Bidirectional database ↔ file conversion (including SQL→SQL table copy, MongoDB collection copy and file-to-file
       conversion);

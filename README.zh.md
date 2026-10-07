@@ -12,38 +12,30 @@
 </p>
 
 
-# 界面截图
-
-> 下列截图全部取自 v1.1.6 的真实运行：Windows 图形界面、Linux 图形界面与 Linux 终端向导。
-> 每张图下方的说明标注了它演示的功能点，便于按图索骥。
-
-
-## 图 1 · 主界面全貌
-
 <div align="center">
 <img src="images/img03.png" alt="DataTransformer 主界面全貌" width="100%">
 </div>
 
-自上而下依次是：标题与彩色分隔条 → **SSH 隧道** → **① 输入配置** → **② 输出配置** → **④ 运行日志** → 底部状态栏。
-图中是一次 **MySQL → CSV 目录模式**导出刚完成的状态：日志能看到
-`CSV 导出完成: …\Cty\VirtualData.csv（共 20,000 行）`、`数值保真校验：通过（字段 3 个 / 比对 586 个值）`，
-弹窗汇总本次结果；右下角「开始转换 ▶」与右侧按钮列（清空日志 / 初始化）在运行期间会自动置灰。
+自上而下依次是：标题与彩色分隔条 → 
+**SSH 隧道** → **① 输入配置** → **② 输出配置** → **④ 运行日志**
+→ 底部状态栏。
+图中是一次 **MySQL → CSV 目录模式**导出刚完成的状态。
 
 
-## 图 2 · 数据库连接与 SSH 隧道
+## 数据库连接与 SSH 隧道
 
 <div align="center">
 <img src="images/img02.png" alt="数据库连接卡片与 SSH 隧道卡片" width="100%">
 </div>
 
 **数据库连接**卡片支持 MySQL / PostgreSQL / MongoDB；「端口」是可下拉、可手填的输入框，
-**留空即自动使用该类型的默认端口**（MySQL 3306 / PostgreSQL 5432 / MongoDB 27017），红箭头处就是这条提示。
+**留空即自动使用该类型的默认端口**（MySQL 3306 / PostgreSQL 5432 / MongoDB 27017）。
 最上方的 **SSH 隧道**卡片：勾选后填写的「主机 / 端口」是**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`），
 本机连接自动改走隧道端口；未连接时状态显示 `SSH 隧道:未连接`，连接后显示
 `127.0.0.1:<本地端口> → SSH 用户@主机:22 → 127.0.0.1:5432`。
 
 
-## 图 3 · 连接成功与隧道日志
+## 连接成功与隧道日志
 
 <div align="center">
 <img src="images/img01.png" alt="连接成功提示与 SSH 隧道日志" width="100%">
@@ -54,18 +46,17 @@
 `连接成功: PostgreSQL …`。图中的用户名、密码等敏感字段已打码，实际使用时按自己的环境填写。
 
 
-## 图 4 · 大表导出过程中的进度
+## 大表导出过程中的进度
 
 <div align="center">
 <img src="images/img04.png" alt="PostgreSQL 经 SSH 隧道导出 Excel 的进度" width="100%">
 </div>
 
-PostgreSQL（经 SSH 隧道）→ Excel：日志每 2 万行打印一次 `已写出 100,000 行 ...`，
-底部状态栏显示「运行中...」，进度条为不确定进度（忙碌指示）。执行期间所有输入框与操作按钮自动置灰，
-既防止中途改参数让后台任务读到“半截”配置，也防止重复点击。
+PostgreSQL（经 SSH 隧道）→ Excel：日志每 2 万行打印一次，
+执行期间所有输入框与操作按钮自动置灰，既防止中途改参数让后台任务读到“半截”配置，也防止重复点击。
 
 
-## 图 5 · 百万行导出与数值保真校验
+## 百万行表格导出
 
 <div align="center">
 <img src="images/img05.png" alt="100 万行导出完成与数值保真校验" width="100%">
@@ -76,18 +67,18 @@ PostgreSQL（经 SSH 隧道）→ Excel：日志每 2 万行打印一次 `已写
 —— 百万行级别依然稳定：服务端流式游标不会把整表读进内存，Excel 使用 openpyxl 流式模式。
 
 
-## 图 6 · MongoDB → JSON
+## MongoDB → JSON
 
 <div align="center">
 <img src="images/img06.png" alt="MongoDB 集合导出为 JSON" width="100%">
 </div>
 
 选中 MongoDB 时，数据库卡片会多出 **连接 URI** 与 **认证库 authSource** 两行（其他类型自动隐藏）。
-图中经 SSH 隧道连接 `127.0.0.1:27017`、认证库 `admin`，把集合导出为 `MyData.json`
+图中经 SSH 隧道连接 `127.0.0.1:27017`、认证库，把集合导出为 `MyData.json`
 （一级键 `[VirtualProfile]`，共 4 行）；集合名 ↔ JSON 一级键、文档字段 ↔ 首行表头一一对应。
 
 
-## 图 7 · 嵌套文档 / 数组的往返对照
+## 嵌套文档 / 数组的往返对照
 
 <div align="center">
 <img src="images/img07.png" alt="mongosh 原始文档与导出 JSON 的对照" width="100%">
@@ -99,7 +90,7 @@ PostgreSQL（经 SSH 隧道）→ Excel：日志每 2 万行打印一次 `已写
 JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开头时按文本保留，避免 MongoDB 键名限制导致写入失败）。
 
 
-## 图 8 · Linux 图形界面
+## Linux 图形界面
 
 <div align="center">
 <img src="images/img10.png" alt="Linux 上的图形界面" width="100%">
@@ -109,7 +100,7 @@ JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开�
 （图中导出到 `/home/.../Cty/VirtualData.csv`，共 20,000 行），底部状态栏显示「已连接数据库 | 就绪」。
 
 
-## 图 9 · 首次启动的自动依赖安装
+## 首次启动的自动依赖安装
 
 <div align="center">
 <img src="images/img08.png" alt="data_transformer.sh 首次运行自动创建虚拟环境" width="70%">
@@ -120,7 +111,7 @@ JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开�
 `openpyxl / pymysql / psycopg2-binary / pymongo / questionary / paramiko`；再次运行会直接复用该虚拟环境。
 
 
-## 图 10 · `--gui`：依赖就绪后启动图形界面
+## GUI界面 依赖就绪后启动图形界面
 
 <div align="center">
 <img src="images/img09.png" alt="data_transformer.sh --gui 自动安装依赖" width="70%">
@@ -130,7 +121,7 @@ JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开�
 注意：**命令行向导本身不需要 PySide6**，无桌面环境的服务器用默认的 `./data_transformer.sh` 即可。
 
 
-## 图 11 · 终端向导：选择格式 → 连接 MongoDB → 层级勾选
+## 终端向导：选择格式 → 连接 MongoDB → 层级勾选
 
 <div align="center">
 <img src="images/img11.png" alt="终端向导:选择输入格式与 MongoDB 连接参数" width="100%">
@@ -142,7 +133,7 @@ JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开�
 右侧是同一时刻 mongosh 中 `MongoData.MongoCollections` 的真实文档，可与导出结果对照。
 
 
-## 图 12 · 终端向导：导出 JSON 完成
+## 终端向导：导出 JSON 完成
 
 <div align="center">
 <img src="images/img12.png" alt="终端向导:MongoDB 导出 JSON 完成" width="100%">
@@ -226,14 +217,12 @@ DataTransformer/
 - **便携版**：`DataTransformer.exe` 为 Nuitka 打包的单文件程序，无需安装 Python，下载后双击即可使用。
 - **bat 运行**：`run.bat` 使用本机 Python 直接运行源码，适合开发调试。
 
-当前版本为 **Ver1.1.6**，历史版本归档于项目根目录 `Ver1.0.0` ~ `Ver1.1.5` 文件夹中（`Ver1.2.0` ~ `Ver1.6.0` 及 1.7/1.8 命名已弃用）。
-
 
 ## Linux / macOS
 
 **系统要求：**
 
-- 主流发行版均可：Debian / Ubuntu、RHEL / CentOS / Rocky、Fedora、Arch / Manjaro、openSUSE，以及 macOS
+- 主流发行版均可：Debian / Ubuntu / CentOS / Rocky / Fedora，以及 macOS
 - Python 3.8+（启动脚本会自动探测 `python3` / `python3.x` / `python`）
 
 **使用方式：**
@@ -247,7 +236,7 @@ chmod +x data_transformer.sh   # 首次使用：赋予执行权限
 
 ```text
 ① 选择输入格式：MySQL / PostgreSQL / Xlsx / Json / Csv
-② 选择数据表（层级第 1 层） → 选择字段（层级第 2 层）
+② 选择数据表
 ③ 选择输出格式与写入方式
 ④ 选择导出路径（文件或目录）
 ⑤ 执行转换并输出日志
@@ -282,14 +271,11 @@ chmod +x data_transformer.sh   # 首次使用：赋予执行权限
 | 发行版 | 安装 Python 与 venv | 安装依赖 |
 | :--- | :--- | :--- |
 | Ubuntu / Debian | `sudo apt update && sudo apt install -y python3 python3-venv python3-pip` | `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` |
-| RHEL / CentOS / Rocky | `sudo dnf install -y python3 python3-pip` | 同上（CentOS 7 建议先 `sudo yum install -y centos-release-scl`） |
+| CentOS / Rocky | `sudo dnf install -y python3 python3-pip` | 同上（CentOS 7 建议先 `sudo yum install -y centos-release-scl`） |
 | Fedora | `sudo dnf install -y python3 python3-pip` | 同上 |
-| Arch / Manjaro | `sudo pacman -S --needed python python-pip` | 同上 |
-| openSUSE | `sudo zypper install -y python3 python3-pip` | 同上 |
 | macOS | `brew install python` | 同上 |
 
 > psycopg2 在少数发行版需要编译依赖：Debian/Ubuntu 用 `sudo apt install -y libpq-dev`，
-> RHEL 系用 `sudo dnf install -y postgresql-devel`；也可直接用 `psycopg2-binary`（默认依赖即为此包）。
 >
 > 免虚拟环境快速安装核心依赖（不含 PySide6）：
 >
@@ -313,8 +299,6 @@ cd DataTransformer
 pip install -r requirements.txt
 ```
 
-> PySide6 体积较大，官方源下载慢时建议使用国内镜像：
->
 > ```bash
 > pip install PySide6 -i 镜像源
 > ```
@@ -472,20 +456,6 @@ JSON 采用**表头 + 行记录**结构：
 > 隧道只监听本机 `127.0.0.1`,不会对外网暴露端口;点击 **断开 SSH** 或关闭程序会自动释放隧道。
 
 
-## 一键载入 Demo/Example.txt 示例
-
-点击 **载入 Example.txt 示例** 会按 `Demo/Example.txt` 自动填入：
-
-| 项目 | 值 |
-| :--- | :--- |
-| SSH | `user@172.24.208.28:22`，密码 `123456` |
-| 数据库 | PostgreSQL `Ubuntu2604@127.0.0.1:5432`，密码 `123456` |
-| 库 / 表 | `virtual_data` / `VirtualProfile` |
-
-即先 `ssh user@172.24.208.28`,再 `psql -h 127.0.0.1 -p 5432 -U Ubuntu2604 -d virtual_data` 的等价流程。
-换环境时把上表改成自己的参数即可。
-
-
 ## 命令行向导
 
 `./data_transformer.sh` 在询问连接参数时会先问「是否通过 SSH 隧道连接远程服务器」,交互与图形界面一致;
@@ -639,7 +609,7 @@ python dt_core.py                   # 无界面自检(等价 --selftest),结果�
 - [x] Windows 10/11 图形界面（PySide6）：Input 参数区、Output 参数区、运行日志 + 开始转换按钮、进度条；
 - [x] Windows 使用 Nuitka 打包为单文件可执行程序（`build_exe.bat`，自动校验大小与 SHA-256）；
 - [x] Linux / macOS 终端交互式工具（`data_transformer.sh` → `dt_cli.py`），**questionary** 动态选择格式与参数，无需图形界面；
-- [x] 覆盖 Ubuntu、Debian、Fedora、Arch、CentOS 的依赖安装与运行说明；
+- [x] 覆盖 Ubuntu、Debian、Fedora、CentOS 的依赖安装与运行说明；
 - [x] 适配 MySQL、PostgreSQL、**MongoDB**，以及 xlsx、csv、json 文件；
 - [x] 数据库 ↔ 文件双向转换（含 SQL→SQL 表拷贝、MongoDB 集合拷贝、文件间互转）；
 - [x] 映射规则：xlsx `sheetname` ↔ 数据库表名 / MongoDB 集合名；首行表头 ↔ 数据库字段名；CSV / JSON 提供等价映射并提供手动覆盖；
