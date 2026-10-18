@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from dt_numeric import (
+from src.dt_numeric import (
     FidelityReport, NumericRecorder, dumps_json, excel_cell_value, format_number,
     has_scientific_notation, is_number_literal, loads_json, parse_number,
     significant_digits, to_decimal,

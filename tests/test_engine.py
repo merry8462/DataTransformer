@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-import dt_core as core
-from dt_numeric import FidelityError, format_number
+import src.dt_core as core
+from src.dt_numeric import FidelityError, format_number
 
 LONG_VALUES = [
     "12345678901234567890.12345",          # 20 位整数 + 5 位小数
@@ -272,3 +272,54 @@ def test_empty_source_is_reported_clearly(tmp_path):
             [core.SourceSpec(kind="JSON", path=str(empty), table="nothing")],
             core.TargetSpec(kind="JSON", path=str(tmp_path / "out.json"), key="k")
         )
+
+
+class FakeEngine:
+    """只带 KIND 的伪适配器:用于校验转换入口的引擎一致性(不连库)。"""
+
+    def __init__(self, kind):
+        self.KIND = kind
+
+
+def test_apply_field_mapping_reports_source_duplicates_separately():
+    """用户没做映射时,提示不能是"请调整映射关系"(如 SELECT a.id, b.id)。"""
+    with pytest.raises(ValueError) as excinfo:
+        core.apply_field_mapping(["id", "id"], core.TargetSpec(kind="CSV"))
+    message = str(excinfo.value)
+    assert "数据源存在重名字段" in message and "AS" in message
+
+    target = core.TargetSpec(kind="CSV",
+                             fields=core.FieldMapping.from_pairs({"A": "X", "B": "X"}))
+    with pytest.raises(ValueError, match="字段映射后出现重名字段"):
+        core.apply_field_mapping(["A", "B"], target)
+
+
+def test_convert_rejects_cross_engine_combination(tmp_path):
+    """连接类型与源/目标类型不一致时必须提前报错,而不是抛驱动层 AttributeError。"""
+    cases = [
+        ([core.SourceSpec(kind="SQL", table="t")],
+         core.TargetSpec(kind="CSV", path=str(tmp_path / "o.csv")), FakeEngine("Mongo")),
+        ([core.SourceSpec(kind="Mongo", table="c")],
+         core.TargetSpec(kind="CSV", path=str(tmp_path / "o.csv")), FakeEngine("SQL")),
+        ([core.SourceSpec(kind="CSV", path=str(tmp_path / "o.csv"))],
+         core.TargetSpec(kind="SQL", table="t"), FakeEngine("Mongo")),
+    ]
+    for sources, target, engine in cases:
+        with pytest.raises(ValueError, match="跨数据库类型不能直接转换"):
+            core.convert(sources, target, conn=object(), adapter=engine)
+
+
+def test_sql_to_sql_copy_requires_config():
+    """表拷贝会另开输出连接,缺少连接配置时必须报错而不是抛 AttributeError。"""
+    engine = FakeEngine("SQL")
+    with pytest.raises(ValueError, match="表拷贝需要提供数据库连接配置"):
+        core.convert([core.SourceSpec(kind="SQL", table="t")],
+                     core.TargetSpec(kind="SQL", table="dst"),
+                     conn=object(), adapter=engine)
+
+    with pytest.raises(ValueError, match="所有数据源都被跳过"):
+        core.convert([core.SourceSpec(kind="SQL", table="t", mode="skip")],
+                     core.TargetSpec(kind="SQL", table="dst"),
+                     conn=object(), adapter=engine,
+                     cfg=core.DBConfig.from_mapping({"host": "h", "user": "u",
+                                                     "password": "p", "database": "d"}))

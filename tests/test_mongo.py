@@ -7,9 +7,9 @@ import json
 
 import pytest
 
-import dt_core as core
-import dt_mongo as mongo
-from dt_numeric import format_number
+import src.dt_core as core
+import src.dt_mongo as mongo
+from src.dt_numeric import format_number
 
 TEST_DB = "dtx_pytest"
 LONG_VALUES = ["12345678901234567890.12345", "1.500", "9007199254740993", "0.1"]
