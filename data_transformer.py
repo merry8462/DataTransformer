@@ -11,7 +11,7 @@ DataTransformer 图形界面(PySide6 / Qt)
     字段名    == Excel 首行单元格 == JSON HeaderFields == CSV 表头
 
 设计说明:
-    * 全部业务逻辑位于 dt_core.py(无 Qt 依赖),本文件只负责界面与交互,
+    * 全部业务逻辑位于 src/dt_core.py(无 Qt 依赖),本文件只负责界面与交互,
       因此 ./data_transformer.sh 的命令行向导与图形界面行为完全一致;
     * SSH 隧道:勾选后由 paramiko 建立本地端口转发,界面里填写【远程服务器上】
       数据库的地址(通常 127.0.0.1),即可像本地库一样导入导出远端 SQL 数据库;
@@ -19,34 +19,38 @@ DataTransformer 图形界面(PySide6 / Qt)
 """
 
 import contextlib
+import datetime
 import html
 import os
 import sys
 import threading
 import traceback
+from dataclasses import replace
 from pathlib import Path
 
-from dt_core import (
+from src.dt_core import (
     ADAPTERS, APP_TITLE, DEFAULT_BATCH, DELIM_LABELS, ENC_LABELS, INPUT_LABELS,
     MODE_KEYS, MODE_LABELS, OUTPUT_LABELS, SSH_DEFAULT_PORT, VERSION,
     FieldMapping, Settings, SourceSpec, SSHConfig, SSHTunnel, TargetSpec,
     config_for, convert, csv_output_paths, describe_db_error, describe_ssh_error,
-    json_top_keys, open_reader, paramiko_available, read_csv_header, safe_filename,
+    json_top_keys, open_reader, paramiko_available, preview_query, query_label,
+    read_csv_header, safe_filename,
     safe_sheet_title, scan_csv_sections, to_int, workbook_sheet_headers,
     config_file_path,
 )
-from dt_core import run_self_test as core_self_test
-from dt_numeric import FidelityError
+from src.dt_core import run_self_test as core_self_test
+from src.dt_numeric import FidelityError
 
 try:
     from PySide6.QtCore import Qt, QObject, QPoint, QTimer, Signal
-    from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPolygon
+    from PySide6.QtGui import (QColor, QFontDatabase, QGuiApplication, QPainter,
+                               QPolygon, QTextCursor)
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QComboBox,
         QCheckBox, QPushButton, QFrame, QGroupBox, QGridLayout, QHBoxLayout,
         QVBoxLayout, QPlainTextEdit, QFileDialog, QMessageBox, QDialog,
         QProgressBar, QTableWidget, QTableWidgetItem,
-        QTreeWidget, QTreeWidgetItem, QSpinBox, QScrollArea,
+        QTreeWidget, QTreeWidgetItem, QSpinBox, QScrollArea, QSizePolicy,
     )
 except ImportError as exc:  # pragma: no cover - 服务器上通常没有 PySide6
     print(f"未安装 PySide6({exc})。\n"
@@ -171,6 +175,28 @@ QTreeWidget::item:selected {{ background: #dbe7ff; color: {NAVY}; }}
 QScrollArea {{ background: transparent; border: none; }}
 QDialog {{ background: {CARD}; }}
 """
+
+class DTError(RuntimeError):
+    """本工具自己抛出的中文异常:原文即用户提示,不再二次翻译。"""
+
+
+# 链路中断类错误特征与补充提示(具体原因仍由 describe_db_error 给出)
+TUNNEL_BREAK_KEYS = ("channel closed", "connection reset", "socket is closed",
+                     "broken pipe", "software caused connection abort")
+TUNNEL_BREAK_HINT = "当前启用了 SSH 隧道,隧道可能已断开,请检查【连接 SSH】状态后重试"
+
+
+def tunnel_break_hint(message, tunnel=None) -> str:
+    """链路中断类错误且隧道当前确实不活跃时返回补充提示,否则返回空串。"""
+    if tunnel is None or getattr(tunnel, "active", False):
+        return ""
+    low = str(message).lower()
+    return TUNNEL_BREAK_HINT if any(key in low for key in TUNNEL_BREAK_KEYS) else ""
+
+
+def error_message(exc, describe) -> str:
+    """异常 → 中文说明:只有 DTError 已经是中文,其它异常都交给 describe 翻译。"""
+    return str(exc) if isinstance(exc, DTError) else describe(exc)
 
 
 class Bridge(QObject):
@@ -354,6 +380,216 @@ class HierTableSelect(QWidget):
         self._rebuild_tree()
 
 
+# 自定义查询语句:SQL 与 MongoDB 各一条示例,对话框里两条并列展示
+SQL_QUERY_EXAMPLE = ("SELECT Id, Name FROM VirtualProfile "
+                     "WHERE Name LIKE '%ExampleText%' ORDER BY Id LIMIT 100")
+MONGO_QUERY_EXAMPLE = ('db.VirtualProfile.find({"Name": {"$regex": "张"}})'
+                       '.sort({"Id": 1}).limit(100)')
+# mongosh 风格:键不带引号,含 $expr 组合条件
+MONGO_QUERY_SAMPLE = ('db.TestCollections.find({ Age: { $gte: 25, $lte: 45 }, '
+                      'Example: "Text", $expr: { $and: [{ $isArray: "$Hobbies" }, '
+                      '{ $gt: [ { $size: "$Hobbies" }, 3 ] }]}})')
+
+
+class _PreviewSignals(QObject):
+    """预览线程 → 主线程的信号载体:只搬结果对象 / 错误文案,不碰控件。"""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+
+class QueryDialog(QDialog):
+    """自定义查询语句:必须先校验并预览表头 + 样本行,才允许确定。
+
+    语句可以是只读查询,也可以是 UPDATE / DDL(MongoDB 为 db.<集合>.find(...) 及链式调用);
+    非只读语句不执行、不产出导出数据,只做一次二次确认。
+    """
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.statement = ""             # 确定后交给主窗口的语句与标签(仅在预览有效时有值)
+        self.label = ""
+        self.header = []
+        self.setWindowTitle("自定义查询语句")
+        self.resize(720, 560)
+        lay = QVBoxLayout(self)
+
+        mongo = app.adapter.NAME == "MongoDB"
+        example = MONGO_QUERY_EXAMPLE if mongo else SQL_QUERY_EXAMPLE
+        for title, sample in (("SQL 示例:", SQL_QUERY_EXAMPLE),
+                              ("MongoDB 示例:", MONGO_QUERY_SAMPLE)):
+            caption = QLabel(title)
+            caption.setObjectName("muted")
+            lay.addWidget(caption)
+            text = QLabel(sample)
+            text.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+            text.setWordWrap(True)                  # 长语句整体换行,不截断
+            text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            lay.addWidget(text)
+
+        self.editor = QPlainTextEdit()
+        self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.editor.setMinimumHeight(140)
+        self.editor.setPlaceholderText(example)
+        lay.addWidget(self.editor, 1)
+
+        self.status = QLabel("尚未校验:请先点“校验并预览”")
+        self.status.setObjectName("muted")
+        self.status.setWordWrap(True)
+        lay.addWidget(self.status)
+
+        self.preview_table = QTableWidget(0, 0)
+        self.preview_table.setMinimumHeight(120)
+        lay.addWidget(self.preview_table, 1)
+        self.editor.textChanged.connect(self._invalidate)   # 语句一改,上一次预览就作废
+
+        buttons = QHBoxLayout()
+        self.preview_btn = QPushButton("校验并预览")
+        self.preview_btn.setObjectName("teal")
+        self.preview_btn.clicked.connect(self.on_preview)
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self.reject)
+        self.ok_btn = QPushButton("确定")
+        self.ok_btn.setObjectName("primary")
+        self.ok_btn.setEnabled(False)
+        self.ok_btn.clicked.connect(self.accept)
+        buttons.addWidget(self.preview_btn)
+        buttons.insertStretch(1, 1)
+        buttons.addWidget(self.cancel_btn)
+        buttons.addWidget(self.ok_btn)
+        lay.addLayout(buttons)
+
+        self.signals = _PreviewSignals(self)
+        self.signals.done.connect(self._on_preview_done)
+        self.signals.failed.connect(self._on_preview_failed)
+        source = getattr(app, "query_source", None)
+        if source is not None and source.query:
+            # “点击修改”:把当前生效的语句载回编辑器,重新校验通过后才算数
+            self.editor.setPlainText(source.query)
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.editor.setTextCursor(cursor)
+            self.status.setText("已载入当前语句,请重新校验")
+
+    def result_pair(self):
+        """确定后返回 (语句, 标签)。"""
+        return self.statement, self.label
+
+    def on_preview(self):
+        """校验语句并预览表头 + 3 行样本:语句放到后台线程执行,慢查询不会冻住窗口。"""
+        statement = self.editor.toPlainText().strip()
+        if not statement:
+            self._fail("请填写查询语句")
+            return
+        kind = "Mongo" if self.app.adapter.NAME == "MongoDB" else "SQL"
+        self._invalidate()
+        cfg = None
+        try:
+            cfg = self.app.get_cfg()
+            if self.app.conn is None:
+                self.app.ensure_conn()      # 连库要写日志与状态条,仍留在主线程
+        except Exception as exc:            # noqa: BLE001 - DTError 取原文,其它异常才翻译
+            self._fail(error_message(
+                exc, lambda e: describe_db_error(e, cfg, self.app.adapter)))
+            return
+        self._set_busy(True)
+        self.status.setStyleSheet("")
+        self.status.setText("正在执行语句并读取样本 …")
+        signals, adapter, conn = self.signals, self.app.adapter, self.app.conn
+
+        def work():
+            # 线程里只跑 preview_query 与文案整理:任何控件访问都必须回主线程
+            try:
+                preview = preview_query(SourceSpec(kind=kind, query=statement),
+                                        conn=conn, adapter=adapter, limit=3)
+            except ValueError as exc:
+                self._emit(signals.failed, str(exc))
+            except Exception as exc:        # noqa: BLE001 - 统一翻译成中文提示
+                self._emit(signals.failed, describe_db_error(exc, cfg, adapter))
+            else:
+                self._emit(signals.done, (statement, kind, preview))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_preview_done(self, result):
+        """后台预览成功:回到主线程恢复控件,再填表 / 二次确认。"""
+        statement, kind, preview = result
+        self.statement = statement
+        self.label = query_label(statement, kind)
+        self.header = list(preview.header)
+        self._set_busy(False)
+        if preview.readonly:
+            self._fill_table(preview)
+            self.status.setText(f"预览通过:{len(preview.header)} 列 / {len(preview.rows)} 行样本")
+            self.status.setStyleSheet(f"color: {TEAL}; font-weight: bold;")
+            self.ok_btn.setEnabled(True)
+            return
+        self.status.setText(preview.message or "该语句不是只读查询")
+        self.status.setStyleSheet(f"color: {ORANGE}; font-weight: bold;")
+        if QMessageBox.question(
+                self, "确认",
+                "该语句不是只读查询,执行会修改数据库(语句返回结果集时仍会导出),确定使用吗?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.ok_btn.setEnabled(True)
+
+    def _on_preview_failed(self, message):
+        """后台预览失败:回到主线程恢复控件并提示。"""
+        self._set_busy(False)
+        self._fail(message)
+
+    def _set_busy(self, busy):
+        """预览进行中禁掉预览 / 确定与输入框(取消保持可用),避免重复提交。"""
+        self.preview_btn.setEnabled(not busy)
+        self.editor.setEnabled(not busy)
+        if busy:
+            self.ok_btn.setEnabled(False)
+
+    @staticmethod
+    def _emit(signal, payload):
+        """对话框已关闭 / 已析构时信号打不出去:后台线程的结果直接丢弃。"""
+        try:
+            signal.emit(payload)
+        except RuntimeError:
+            pass
+
+    def closeEvent(self, event):
+        self.signals = None              # 关闭后到达的预览结果不再回填
+        super().closeEvent(event)
+
+    def _invalidate(self):
+        self.statement, self.label, self.header = "", "", []
+        self.ok_btn.setEnabled(False)
+        self.status.setStyleSheet("")
+        self.status.setText("语句已修改:请重新点“校验并预览”")
+        self._clear_table()
+
+    def _fail(self, message):
+        self._invalidate()
+        self.status.setText(f"校验失败:{message}")
+        self.status.setStyleSheet(f"color: {RED}; font-weight: bold;")
+        QMessageBox.critical(self, "查询语句有误", str(message))
+
+    def _clear_table(self):
+        self.preview_table.clear()
+        self.preview_table.setRowCount(0)
+        self.preview_table.setColumnCount(0)
+
+    def _fill_table(self, preview):
+        header = list(preview.header)
+        self._clear_table()
+        self.preview_table.setColumnCount(len(header))
+        self.preview_table.setHorizontalHeaderLabels([str(col) for col in header])
+        self.preview_table.setRowCount(len(preview.rows))
+        for row, values in enumerate(preview.rows):
+            for col, value in enumerate(list(values)[:len(header)]):
+                item = QTableWidgetItem("" if value is None else str(value))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)     # 只读预览
+                self.preview_table.setItem(row, col, item)
+        self.preview_table.resizeColumnsToContents()
+
+
 class App(QMainWindow):
     """Qt 主窗口:输入/输出双面板 + 数据库连接卡片 + SSH 隧道卡片 + 彩色主题。"""
 
@@ -379,6 +615,10 @@ class App(QMainWindow):
         self._build_vars()
         self._build_ui()
         self._connect_signals()
+        # 隧道探活(3 秒):隧道悄悄断开时提示一次并清理,见 _check_tunnel_state
+        self.tunnel_timer = QTimer(self)
+        self.tunnel_timer.setInterval(3000)
+        self.tunnel_timer.timeout.connect(self._check_tunnel_state)
         self._load_config()
         self.on_input_mode_changed()
         self.on_output_mode_changed()
@@ -388,6 +628,9 @@ class App(QMainWindow):
     def _build_vars(self):
         # 界面参数一律以控件为准(避免出现和控件不同步的“影子状态”),这里只放非控件状态
         self.field_mapping = FieldMapping()
+        self.query_source = None        # 自定义查询语句数据源(SourceSpec);None = 走层级勾选
+        self.query_header = []          # 该语句预览出的表头
+        self.query_label = ""           # 该语句的标签(仅用于按钮文字与日志)
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
@@ -436,7 +679,7 @@ class App(QMainWindow):
         self.card_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         root.addWidget(self.card_scroll, 1)
 
-        # 下:运行日志(占大部分) + 右侧按钮列(清空日志 / 初始化 / 开始转换)
+        # 下:运行日志(占大部分) + 右侧按钮列(初始化 / 清空日志 / 开始转换)
         bottom = QHBoxLayout()
         bottom.setContentsMargins(0, 0, 0, 0)
         bottom.setSpacing(6)
@@ -449,7 +692,7 @@ class App(QMainWindow):
         log_lay.addWidget(self.log_text, 1)
         bottom.addWidget(log_group, 1)
 
-        run_col = QVBoxLayout()
+        self.run_col = run_col = QVBoxLayout()
         run_col.setContentsMargins(0, 0, 0, 0)
         run_col.setSpacing(6)
         self.progress = QProgressBar()
@@ -458,23 +701,24 @@ class App(QMainWindow):
         self.progress.setVisible(False)
         run_col.addWidget(self.progress)
 
-        self.clear_btn = QPushButton("清空日志")
-        self.clear_btn.setObjectName("blue")
-        self.clear_btn.clicked.connect(self.on_clear_log)
-        run_col.addWidget(self.clear_btn)
-
         self.reset_btn = QPushButton("初始化")
         self.reset_btn.setObjectName("warn")
         self.reset_btn.setToolTip("清空界面上所有已填写 / 已修改的参数,并断开数据库与 SSH 隧道")
         self.reset_btn.clicked.connect(self.on_reset_all)
-        run_col.addWidget(self.reset_btn)
+
+        self.clear_btn = QPushButton("清空日志")
+        self.clear_btn.setObjectName("blue")
+        self.clear_btn.clicked.connect(self.on_clear_log)
 
         self.convert_btn = QPushButton("开始转换 ▶")
         self.convert_btn.setObjectName("primary")
         self.convert_btn.setMinimumHeight(46)
         self.convert_btn.clicked.connect(self.on_convert)
-        run_col.addWidget(self.convert_btn)
-        run_col.addStretch(1)
+
+        # 三个按钮一起纵向填满该列:窗口放大后按钮不会缩在上方、下方留出空白
+        for button in (self.reset_btn, self.clear_btn, self.convert_btn):
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+            run_col.addWidget(button, 1)
         bottom.addLayout(run_col)
         root.addLayout(bottom, 2)
 
@@ -512,6 +756,12 @@ class App(QMainWindow):
         self.refresh_btn.setObjectName("teal")
         self.refresh_btn.clicked.connect(self.on_refresh_tables)
         sql_lay.addWidget(self.refresh_btn, 0, 2)
+        # 与层级勾选并列的第二条路径:直接写查询语句(校验预览通过后才生效)
+        self.query_btn = QPushButton("自定义查询…")
+        self.query_btn.setObjectName("indigo")
+        self.query_btn.setToolTip("直接填写 SQL 语句或 MongoDB 查询语句,先校验并预览再确定")
+        self.query_btn.clicked.connect(self.on_custom_query)
+        sql_lay.addWidget(self.query_btn, 0, 3)
         sql_lay.setColumnStretch(1, 1)
         lay.addWidget(self.src_sql_frame)
 
@@ -841,6 +1091,7 @@ class App(QMainWindow):
                 "确定继续吗?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
+        self.tunnel_timer.stop()
         self._stop_tunnel()
         self._disconnect_conn()
         self.input_combo.setCurrentText(INPUT_LABELS["SQL"])
@@ -868,6 +1119,7 @@ class App(QMainWindow):
         self.selected_columns = {}
         self.excel_selection = {}
         self.excel_sheets = []
+        self._clear_query_source()
         self.out_mode_combo.setCurrentIndex(0)
         self.batch_spin.setValue(DEFAULT_BATCH)
         self.out_delim_combo.setCurrentIndex(0)
@@ -892,7 +1144,7 @@ class App(QMainWindow):
         self.progress.setRange(0, 0)              # 不确定进度条(忙碌指示)
         self.progress.setVisible(True)
         self._update_ui_state()
-        cfg = self.get_cfg()
+        cfg = self._config_for_describe()      # 隧道没建立时取不到配置,不影响任务本身
         adapter = self.adapter
         describe = describe or (lambda exc: describe_db_error(exc, cfg, adapter))
 
@@ -900,9 +1152,13 @@ class App(QMainWindow):
             try:
                 fn()
             except Exception as exc:  # noqa: BLE001 - 统一转成中文提示弹窗
-                self.log(f"发生错误: {exc}", "err")
-                self.log(traceback.format_exc(), "err")
-                self.bridge.error_s.emit(describe(exc))
+                message = error_message(exc, describe)
+                hint = tunnel_break_hint(exc, self.tunnel)
+                message = f"{message}\n{hint}" if hint else message
+                self.log(f"发生错误:{message}", "err")
+                if os.environ.get("DT_DEBUG"):      # 仅调试时输出回溯,默认不给用户看源码行号
+                    self.log(traceback.format_exc(), "err")
+                self.bridge.error_s.emit(message)
             finally:
                 self.bridge.done_s.emit()
 
@@ -915,6 +1171,7 @@ class App(QMainWindow):
         self.progress.setValue(0)
         self.progress.setVisible(False)
         self._save_config()          # 只在主线程读写界面控件,避免跨线程访问 Qt 对象
+        self._sync_tunnel_timer()    # 连接 SSH 成功后在这里启动探活定时器
         self._refresh_status_chip()
         self._update_ui_state()
 
@@ -927,12 +1184,13 @@ class App(QMainWindow):
         self._set_chip_state("ok" if self.conn is not None else "idle")
 
     def _on_tree_data(self, table_columns):
+        # 刷新表结构不改变当前数据源:查询源保持有效,只有用户真的勾选并确定才切回层级勾选
         if not table_columns:                # 连上了但库里没有表/集合:按钮上直接说明
             self.tree_select.set_hint("数据库里没有可用的表/集合")
-            self.on_tree_confirmed({})
+            self.on_tree_confirmed({}, explicit=False)
             return
         self.tree_select.set_tables(table_columns)
-        self.on_tree_confirmed(self.tree_select.get_selection())
+        self.on_tree_confirmed(self.tree_select.get_selection(), explicit=False)
 
     def _on_sheets(self, names):
         self.in_sheet_combo.blockSignals(True)
@@ -981,6 +1239,7 @@ class App(QMainWindow):
 
     def on_input_mode_changed(self, *_):
         key = self.input_key()
+        self._clear_query_source("已切换输入格式")
         self.input_card.setProperty("mode", key)
         self._repolish(self.input_card)
         sql_mode = key == "SQL"
@@ -1035,7 +1294,7 @@ class App(QMainWindow):
     def _convert_ready(self, in_key, out_key):
         """判断“开始转换”按钮是否可点击:输入/输出都就绪才亮起。"""
         if in_key == "SQL":
-            return bool(self.selected_columns)
+            return self.query_source is not None or bool(self.selected_columns)
         path = self.in_file_edit.text()
         if not (path and os.path.isfile(path)):
             return False
@@ -1083,7 +1342,10 @@ class App(QMainWindow):
         self.disc_btn.setEnabled(not busy and connected)
         self.refresh_btn.setEnabled(not busy and in_key == "SQL" and can_db)
         self.pick_btn.setEnabled(not busy and in_key in ("Excel", "JSON", "CSV"))
-        self.tree_select.button.setEnabled(not busy and bool(self.tree_select.tables))
+        self.query_btn.setEnabled(not busy)
+        # 自定义查询与层级勾选互斥:查询源生效时把层级勾选入口置灰
+        self.tree_select.button.setEnabled(
+            not busy and self.query_source is None and bool(self.tree_select.tables))
         self.excel_tree.button.setEnabled(not busy and bool(self.excel_tree.tables))
         self.ssh_conn_btn.setEnabled(not busy and need_db and ssh_on and ssh_ready)
         self.ssh_disc_btn.setEnabled(not busy and self.tunnel is not None)
@@ -1154,6 +1416,8 @@ class App(QMainWindow):
         in_key = self.input_key()
         base = ""
         if in_key == "SQL":
+            if self.query_source is not None:
+                return              # 查询源不参与目标名推导:表名留空、Sheet 名启用时已填好
             if len(self.selected_tables) > 1:
                 self._reset_auto_name(self.out_sheet_edit, "_auto_sheet")
                 self._reset_auto_name(self.out_table_edit, "_auto_table")
@@ -1195,15 +1459,40 @@ class App(QMainWindow):
             values.update({"uri": self.mongo_uri_edit.text().strip(),
                            "auth_source": self.mongo_auth_edit.text().strip()})
         cfg = config_for(self.adapter.NAME, values)
+        if self.ssh_config().enabled and (self.tunnel is None or not self.tunnel.active):
+            # 勾了 SSH 但隧道没建立:绝不能静默回退成直连(会连到本机同名库)
+            raise DTError("SSH 隧道未建立或已断开,请先点【连接 SSH】后再连接数据库")
         if self.tunnel is not None and self.tunnel.active:
+            # 切换数据库类型后远程端口会变(3306→5432):每次取配置都同步隧道目标
+            try:
+                self.tunnel.retarget(*self.remote_endpoint())
+            except ValueError as exc:
+                raise DTError(str(exc)) from exc
             return type(cfg)(**{**cfg.as_dict(), "host": SSHTunnel.BIND_HOST,
                                 "port": self.tunnel.local_port})
         return cfg
 
+    def config_or_warn(self):
+        """取连接配置;隧道没建立这类明确的用户问题弹窗提示并返回 None。"""
+        try:
+            return self.get_cfg()
+        except DTError as exc:
+            QMessageBox.warning(self, "提示", str(exc))
+            return None
+
+    def _config_for_describe(self):
+        """describe_* 用:取不到配置时给 None,不打断正在进行的任务。"""
+        try:
+            return self.get_cfg()
+        except DTError:
+            return None
+
     def remote_endpoint(self):
         """SSH 隧道要转发到的【远程服务器上】数据库地址。"""
-        return (self.host_edit.text().strip() or "127.0.0.1",
-                to_int(self.port_edit.currentText(), self.adapter.DEFAULT_PORT))
+        port = to_int(self.port_edit.currentText(), self.adapter.DEFAULT_PORT)
+        if not 1 <= port <= 65535:               # 手填端口越界时回退到该类型的默认端口
+            port = self.adapter.DEFAULT_PORT
+        return (self.host_edit.text().strip() or "127.0.0.1", port)
 
     def ssh_config(self) -> SSHConfig:
         return SSHConfig(
@@ -1217,7 +1506,10 @@ class App(QMainWindow):
     def connect_db(self, cfg=None):
         cfg = (cfg or self.get_cfg()).validated(self.adapter)
         self._disconnect_conn()
-        self.conn = self.adapter.connect(cfg)
+        try:
+            self.conn = self.adapter.connect(cfg)
+        except Exception as exc:            # noqa: BLE001 - 向上只传中文说明
+            raise DTError(describe_db_error(exc, cfg, self.adapter)) from exc
         return self.adapter.server_version(self.conn)
 
     def _load_config(self):
@@ -1276,8 +1568,35 @@ class App(QMainWindow):
                 self.tunnel.stop()
             self.tunnel = None
 
+    def _sync_tunnel_timer(self):
+        """隧道活着才跑探活定时器:已建立 → 启动,否则停止。"""
+        if self.tunnel is not None and self.tunnel.active:
+            if not self.tunnel_timer.isActive():
+                self.tunnel_timer.start()
+        else:
+            self.tunnel_timer.stop()
+
+    def _check_tunnel_state(self):
+        """定时探活:隧道悄悄断开时只提示一次,并清理连接与按钮状态。
+
+        任务进行中不清理连接(worker 可能正在用),等任务结束后由定时器下一拍处理。
+        """
+        tunnel = self.tunnel
+        if tunnel is None or self._busy:
+            return
+        if tunnel.probe():
+            return
+        detail = tunnel.describe()
+        self.tunnel_timer.stop()
+        self.log(f"SSH 隧道已断开:{detail},请重新连接", "warn")
+        self._stop_tunnel()
+        self._disconnect_conn()
+        self._refresh_status_chip()
+        self._update_ui_state()
+
     def disconnect(self):
         self._disconnect_conn()
+        self._clear_query_source("数据库连接已断开")
         self._refresh_status_chip()
         self._update_ui_state()
 
@@ -1298,7 +1617,13 @@ class App(QMainWindow):
             if self.conn is not None and self._ping():
                 return self.conn
         self._disconnect_conn()
-        version = self.connect_db(cfg)
+        try:
+            version = self.connect_db(cfg)
+        except DTError:
+            raise                            # connect_db 抛出的已经是中文说明
+        except Exception as exc:             # noqa: BLE001 - 取版本失败同样只给中文
+            raise DTError(describe_db_error(exc, cfg or self.get_cfg(),
+                                            self.adapter)) from exc
         self.log(f"已自动连接 {self.adapter.NAME} {version}", "ok")
         self.set_status(f"已连接 {self.adapter.NAME} {version}", connected=True)
         return self.conn
@@ -1323,8 +1648,10 @@ class App(QMainWindow):
         self.run_task(work, describe=lambda exc: describe_ssh_error(exc, cfg))
 
     def on_ssh_disconnect(self):
+        self.tunnel_timer.stop()
         self._stop_tunnel()
         self._disconnect_conn()          # 隧道没了,经隧道建立的连接也不能再用
+        self._clear_query_source("SSH 隧道已断开")
         self.log("SSH 隧道已断开", "warn")
         self._refresh_status_chip()
         self._update_ui_state()
@@ -1333,22 +1660,31 @@ class App(QMainWindow):
     def on_db_type_changed(self, *_):
         name = self.db_type_combo.currentText()
         self.adapter = ADAPTERS[name]
-        self.disconnect()
+        self.disconnect()          # 旧连接作废,但隧道继续保留:切换类型不再断隧道
         self._sync_db_type_rows()
         self._sync_port_presets()
         self.log(f"已切换到 {name}(端口留空时自动使用默认端口 "
                  f"{self.adapter.DEFAULT_PORT})", "info")
+        if self.tunnel is not None:
+            # 隧道沿用,只把转发目标改到新类型的远程端口(已建立的通道不受影响)
+            self.tunnel.retarget(*self.remote_endpoint())
+            self.log(f"SSH 隧道已重新指向 {self.tunnel.remote_host}:"
+                     f"{self.tunnel.remote_port}", "info")
+        self._refresh_status_chip()
         self._update_ui_state()
 
     def _sync_port_presets(self):
-        """端口下拉:当前数据库类型的默认端口排第一,其余常用端口跟在后面。"""
-        current = self.port_edit.currentText()
+        """端口下拉:当前类型的默认端口排第一;别的类型的默认端口随切换改成新默认值。"""
+        current = self.port_edit.currentText().strip()
         default = str(self.adapter.DEFAULT_PORT)
         ports = [default] + [str(port) for port in DB_PORT_PRESETS if str(port) != default]
+        # 空白或“别的引擎的默认端口”→ 跟着类型走;用户手填的自定义端口 → 保留
+        stale = not current or (current in {str(port) for port in DB_PORT_PRESETS}
+                                and current != default)
         self.port_edit.blockSignals(True)
         self.port_edit.clear()
         self.port_edit.addItems(ports)
-        self.port_edit.setCurrentText(current)
+        self.port_edit.setCurrentText(default if stale else current)
         self.port_edit.blockSignals(False)
 
     def _sync_db_type_rows(self):
@@ -1359,11 +1695,16 @@ class App(QMainWindow):
             widget.setVisible(mongo)
 
     def on_test_connection(self):
-        cfg = self.get_cfg()
+        cfg = self.config_or_warn()
+        if cfg is None:
+            return
 
         def work():
             # 用临时连接试连,不动用户已经建立/已加载表结构的连接
-            probe = self.adapter.connect(cfg.validated(self.adapter))
+            try:
+                probe = self.adapter.connect(cfg.validated(self.adapter))
+            except Exception as exc:        # noqa: BLE001 - 探活失败也向上传中文说明
+                raise DTError(describe_db_error(exc, cfg, self.adapter)) from exc
             try:
                 version = self.adapter.server_version(probe)
             finally:
@@ -1373,14 +1714,13 @@ class App(QMainWindow):
         self.run_task(work)
 
     def _load_table_columns(self, conn, tables):
-        table_columns = {}
-        for table in tables:
+        def columns_of(table):
             try:
-                table_columns[table] = self.adapter.list_columns(conn, table)
+                return self.adapter.list_columns(conn, table)
             except Exception as exc:
                 self.log(f"读取表【{table}】字段失败: {exc}", "warn")
-                table_columns[table] = []
-        return table_columns
+                return []
+        return {table: columns_of(table) for table in tables}
 
     def _open_connection(self, cfg, announce=True):
         version = self.connect_db(cfg)
@@ -1411,7 +1751,9 @@ class App(QMainWindow):
             self.log(f"数据库【{name}】里没有任何可读数据表:请核对库名与账号权限后重试。", "warn")
 
     def on_connect(self):
-        cfg = self.get_cfg()
+        cfg = self.config_or_warn()
+        if cfg is None:
+            return
 
         def work():
             try:
@@ -1422,7 +1764,9 @@ class App(QMainWindow):
         self.run_task(work)
 
     def on_refresh_tables(self):
-        cfg = self.get_cfg()
+        cfg = self.config_or_warn()
+        if cfg is None:
+            return
 
         def work():
             try:
@@ -1436,10 +1780,13 @@ class App(QMainWindow):
                 raise
         self.run_task(work)
 
-    def on_tree_confirmed(self, selection):
+    def on_tree_confirmed(self, selection, explicit=True):
+        """层级勾选确认;explicit=False 表示只是刷新表结构后回填,不主动切换数据源。"""
         self.selected_columns = {table: list(cols) for table, cols in selection.items() if cols}
         self.selected_tables = list(self.selected_columns)
         self.selected_table = self.selected_tables[0] if self.selected_tables else None
+        if explicit and self.selected_tables:
+            self._clear_query_source("改用层级勾选")
         self._auto_fill_output_names()
         if self.selected_tables:
             self.log(f"已选择 {len(self.selected_tables)} 张表、"
@@ -1447,6 +1794,52 @@ class App(QMainWindow):
         else:
             self.log("未勾选任何表/字段", "warn")
         self._update_ui_state()
+
+    def on_custom_query(self):
+        """自定义查询语句:校验预览通过后才启用;与层级勾选、连接变更互斥。"""
+        if self._busy:
+            return
+        dialog = QueryDialog(self)
+        try:
+            accepted = dialog.exec() == QDialog.Accepted
+            statement, label = dialog.result_pair()
+            header = list(dialog.header)
+        finally:
+            dialog.deleteLater()
+            # 预览里可能已经建好了连接:确定或取消都要让状态条与按钮如实反映真实状态
+            self._refresh_status_chip()
+            self._update_ui_state()
+        if not (accepted and statement):
+            return
+        self.query_source = SourceSpec(
+            kind="Mongo" if self.adapter.NAME == "MongoDB" else "SQL",
+            table=label, query=statement)
+        self.query_header = header
+        self.query_label = label
+        self.selected_columns = {}
+        self.selected_tables = []
+        self.selected_table = None
+        # 目标表名不跟着语句里的表名走:只清掉上一次的自动值,由用户自己填
+        self._reset_auto_name(self.out_table_edit, "_auto_table")
+        if not self.out_sheet_edit.text() or self.out_sheet_edit.text() == self._auto_sheet:
+            self.out_sheet_edit.setText(label)      # Sheet 名 / JSON 键沿用原有推导
+            self._auto_sheet = label
+        self.query_btn.setText(f"自定义查询:{label}(点击修改)")
+        self.log(f"已启用自定义查询:{label}", "ok")
+        self._update_ui_state()
+
+    def _clear_query_source(self, why=""):
+        """退出自定义查询分支,恢复层级勾选入口与按钮文字(why 非空时写一行日志)。"""
+        if self.query_source is None and not self.query_header:
+            return
+        digest = (" ".join((self.query_source.query or "").split())[:60]
+                  if self.query_source is not None else "")
+        self.query_source = None
+        self.query_header = []
+        self.query_label = ""
+        self.query_btn.setText("自定义查询…")
+        if why:
+            self.log(f"已停用自定义查询({why})" + (f":{digest}" if digest else ""), "info")
 
     def on_pick_input_file(self):
         key = self.input_key()
@@ -1599,6 +1992,8 @@ class App(QMainWindow):
         """当前输入源的字段列表(用于字段映射预览)。"""
         in_key = self.input_key()
         if in_key == "SQL":
+            if self.query_source is not None:
+                return list(self.query_header)
             return list(self.selected_columns.get(self.selected_table or "", []))
         if in_key == "Excel" and self.output_key() == "SQL":
             # Excel→SQL 走层级勾选:预览必须用勾选后的那个 Sheet 与字段
@@ -1684,6 +2079,8 @@ class App(QMainWindow):
     def _collect_sources(self, in_key, out_key):
         """按层级勾选结果组装输入源;校验不通过时抛 ValueError(中文提示)。"""
         if in_key == "SQL":
+            if self.query_source is not None:
+                return [replace(self.query_source)]     # 副本:convert 会写入 mode/rows/status
             selection = {table: cols for table, cols in self.selected_columns.items() if cols}
             if not selection:
                 raise ValueError("请连接数据库,并在“选择数据表与字段”层级下拉框中勾选表和字段")
@@ -1780,11 +2177,14 @@ class App(QMainWindow):
 
     def _apply_sheet_decisions(self, sources):
         """Excel→SQL:同名表逐个询问写入方式(返回 False 表示用户取消)。"""
+        cfg = self.config_or_warn()
+        if cfg is None:
+            return False
         try:
-            conn = self.ensure_conn()
-        except Exception as exc:
-            QMessageBox.critical(self, "错误",
-                                 describe_db_error(exc, self.get_cfg(), self.adapter))
+            conn = self.ensure_conn(cfg)
+        except Exception as exc:        # noqa: BLE001 - DTError 取原文,其它异常才翻译
+            QMessageBox.critical(self, "错误", error_message(
+                exc, lambda e: describe_db_error(e, cfg, self.adapter)))
             return False
         for src in sources:
             try:
@@ -1822,7 +2222,9 @@ class App(QMainWindow):
         if target is None:
             return
         target.fields = self.field_mapping            # 应用用户设置的字段映射
-        cfg = self.get_cfg()
+        cfg = self.config_or_warn()
+        if cfg is None:
+            return
         need_db = self._needs_db(sources, target)
 
         def work():
@@ -1853,6 +2255,7 @@ class App(QMainWindow):
             event.ignore()
             return
         self._save_config()
+        self.tunnel_timer.stop()
         self._disconnect_conn()
         self._stop_tunnel()
         event.accept()
@@ -1866,6 +2269,44 @@ def run_self_test():
     with contextlib.suppress(Exception):
         log_path.write_text(log_path.read_text(encoding="utf-8") + line, encoding="utf-8")
     return passed
+
+
+def startup_log_path():
+    """startup-error.log 位置:打包后取 exe 同级目录,源码运行取当前工作目录。"""
+    if "__compiled__" in globals() or getattr(sys, "frozen", False):
+        # Nuitka onefile 通过 NUITKA_ONEFILE_PARENT 指回外层 exe,否则 sys.executable 即产物自身
+        base = os.environ.get("NUITKA_ONEFILE_PARENT") or sys.executable
+        return Path(base).resolve().parent / "startup-error.log"
+    return Path.cwd() / "startup-error.log"
+
+
+def write_startup_log(exc):
+    """把启动期 Python 层异常追加写入 startup-error.log,返回日志路径(写不进去也不抛出)。"""
+    path = startup_log_path()
+    text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    with contextlib.suppress(Exception):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(f"===== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} =====\n{text}\n")
+    return path
+
+
+def report_startup_error(exc):
+    """启动失败的兜底处理:先落盘,再尽力弹窗提示。
+
+    注意:这里只能捕获 Python 层异常;原生崩溃(如 0xc0000005 访问冲突)发生在
+    Python 虚拟机/加载器阶段,进程会直接终止,不会走到这里,只能靠事件查看器排查。
+    """
+    path = write_startup_log(exc)
+    if QApplication.instance() is not None:
+        with contextlib.suppress(Exception):
+            QMessageBox.critical(None, "启动失败", f"启动失败,详见 {path}")
+        return
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None, f"启动失败,详见 {path}", "DataTransformer", 0x00000010)
 
 
 def main():
@@ -1882,4 +2323,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        # --version / --selftest 以及正常退出的退出码原样透出,不写 startup-error.log
+        raise
+    except BaseException as exc:  # 启动期 Python 层异常:落盘 + 弹窗后原样抛出
+        report_startup_error(exc)
+        raise

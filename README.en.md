@@ -15,8 +15,9 @@ scientific notation, and every write is verified by reading the result back.</p>
 
 # Screenshots
 
-> All screenshots below come from real runs of v1.1.6: the Windows GUI, the Linux GUI and the Linux terminal wizard.
-> Each caption names the feature it demonstrates, so you can read the docs by picture.
+> All screenshots below come from real runs of v1.1.6 (historical captures): the Windows GUI, the Linux GUI and the
+> Linux terminal wizard. The current version is v1.1.7; each caption names the feature it demonstrates, so you can
+> read the docs by picture.
 
 
 ## Figure 1 · The main window
@@ -184,24 +185,29 @@ the previous figure.
 ```text
 DataTransformer/
 ├── data_transformer.py    Windows GUI entry point (PySide6 + Nuitka target)
-├── dt_cli.py              Linux / macOS interactive terminal entry (questionary)
-├── dt_core.py             Core conversion engine (reader/writer pipeline, specs, SSH, self-test) + facade
-├── dt_config.py           Constants / connection config (DBConfig, SSHConfig) / remembered settings
-├── dt_files.py            File format layer (xlsx / csv / json read-write and value conversion)
-├── dt_sql.py              Database layer (MySQL / PostgreSQL: streaming read, batch write, type inference)
-├── dt_mongo.py            MongoDB layer (collection listing, schema sampling, Decimal128 read-write)
-├── dt_numeric.py          High-precision number layer (Decimal parsing / fixed-point formatting / reports)
+├── src/                   Engine package (the modules import each other relatively)
+│   ├── __init__.py        Package marker
+│   ├── dt_cli.py          Linux / macOS interactive terminal entry (questionary)
+│   ├── dt_core.py         Core conversion engine (reader/writer pipeline, specs, SSH, self-test) + facade
+│   ├── dt_config.py       Constants / connection config (DBConfig, SSHConfig) / remembered settings
+│   ├── dt_files.py        File format layer (xlsx / csv / json read-write and value conversion)
+│   ├── dt_sql.py          Database layer (MySQL / PostgreSQL: streaming read, batch write, type inference, free queries)
+│   ├── dt_mongo.py        MongoDB layer (collection listing, schema sampling, Decimal128 read-write, find parsing)
+│   └── dt_numeric.py      High-precision number layer (Decimal parsing / fixed-point formatting / reports)
 ├── tests/                 pytest unit and integration tests (incl. long-float suite)
 │   ├── test_numeric.py    Numeric fidelity: trailing zeros, huge ints, scientific notation, JSON/Excel output
 │   ├── test_engine.py     Engine: mapping rules, multi-table output, skip/directory modes, blocked conversion
 │   ├── test_mongo.py      MongoDB value conversion and real-server round-trips (skipped without a server)
-│   └── test_cli.py        End-to-end terminal wizard interaction (driven through a pipe)
-├── data_transformer.sh    Linux / macOS launcher (detects Python, creates .venv on demand)
+│   ├── test_cli.py        End-to-end terminal wizard interaction (driven through a pipe)
+│   ├── test_gui.py        Key GUI logic (offscreen)
+│   └── test_query.py      Custom queries: read-only classification, free-statement loading, find parsing, preview
+├── data_transformer.sh    Linux / macOS launcher (detects Python, creates .venv on demand, runs python -m src.dt_cli)
 ├── build_exe.bat          Windows packaging script (Nuitka onefile)
 ├── run.bat                Run from source on Windows
+├── conftest.py            pytest root configuration (puts the project root on sys.path)
 ├── requirements.txt       Dependency list
 ├── README.zh.md           Chinese documentation (this file's sibling)
-├── README.en.md           English documentation
+├── README.en.md           English documentation (this file)
 └── Demo/                  Sample data and notes (Example.txt / Example.xlsx)
 ```
 
@@ -240,8 +246,9 @@ Linux / macOS terminal wizard.
 - **Portable**: `DataTransformer.exe` is a Nuitka onefile build — no Python needed, just double-click it.
 - **Batch run**: `run.bat` runs the sources with the local Python interpreter (handy while developing).
 
-The current version is **Ver1.1.6**; historical versions are archived in `Ver1.0.0` … `Ver1.1.5`
-(the names `Ver1.2.0` … `Ver1.6.0` and 1.7/1.8 are retired).
+The current version is **Ver1.1.7** (`VERSION` in `src/dt_config.py`; `DataTransformer.exe --version` prints it);
+historical versions are archived in `Ver1.0.0` … `Ver1.1.6` (the names `Ver1.2.0` … `Ver1.6.0` and 1.7/1.8 are
+retired).
 
 
 ## Linux / macOS
@@ -346,10 +353,10 @@ On Linux / macOS you can skip the GUI and run the wizard directly (no PySide6 re
 
 ```bash
 pip install openpyxl pymysql psycopg2-binary pymongo questionary paramiko   # core dependencies only
-python3 dt_cli.py                                       # same as ./data_transformer.sh
-python3 dt_cli.py --demo                                # with the Demo sample parameters
-python3 dt_cli.py --plain                               # force plain-text prompts
-python3 dt_cli.py --selftest                            # headless self-test
+python -m src.dt_cli                                       # same as ./data_transformer.sh
+python -m src.dt_cli --demo                                # with the Demo sample parameters
+python -m src.dt_cli --plain                               # force plain-text prompts
+python -m src.dt_cli --selftest                            # headless self-test
 ```
 
 
@@ -371,9 +378,11 @@ build\DataTransformer.exe
 > (`build\data_transformer.dist\DataTransformer.exe`).
 
 > **Always verify the artifact before shipping**: `build\DataTransformer.exe` must be a **single file of about
-> 44–48 MB**. **The actual Ver1.1.6 build is 46,789,632 bytes (44.6 MB),
-> SHA-256 `9ed118bead348a2230b722d3d4596a8734534242f57e1139c55ff27ad9eff8d5`**
-> (contains PySide6 + pymongo/bson + paramiko/cryptography + openpyxl).
+> 44–48 MB** (it contains PySide6 + pymongo/bson + paramiko/cryptography + openpyxl). The **v1.1.6 published
+> artifact** measured 46,789,632 bytes (44.6 MB),
+> SHA-256 `9ed118bead348a2230b722d3d4596a8734534242f57e1139c55ff27ad9eff8d5` — a historical record of a shipped
+> build, **not** a value to check v1.1.7 against: v1.1.7 has to be repackaged, and only then are its own size and
+> SHA-256 recorded.
 > If the target machine reports a `DataTransformer.exe` of about **219 KB**, the file transfer was truncated or only
 > the launcher was copied:
 >
@@ -398,22 +407,86 @@ build\DataTransformer.exe
 >
 > ```powershell
 > python -m nuitka --standalone --onefile --enable-plugin=pyside6 ^
->   --windows-console-mode=disable --nofollow-import-to=pandas ^
+>   --windows-console-mode=attach --nofollow-import-to=pandas ^
 >   --include-package=pymysql --include-package=psycopg2 --include-package-data=psycopg2 ^
 >   --include-package=pymongo --include-package=bson ^
 >   --include-package=paramiko --include-package=cryptography ^
 >   --include-package=et_xmlfile ^
+>   --include-package=src ^
 >   --output-dir=build --output-filename=DataTransformer data_transformer.py
 > ```
+>
+> `--windows-console-mode=attach`: double-clicking still opens no console window, but running
+> `DataTransformer.exe --version` or `--selftest` from a terminal shows the output (`disable` makes both
+> completely invisible).
 >
 > Notes: ① Python 3.10+ and MSVC (Visual Studio Build Tools, "Desktop development with C++") or MinGW64 are required;
 > ② **close any running `DataTransformer.exe` before packaging**, otherwise Nuitka fails with `WinError 5 Access denied`
 > when replacing the artifact; ③ the first build takes 5–15 minutes, later builds are much faster thanks to the C
-> compilation cache; ④ changing `VERSION` in `dt_config.py` only takes effect after rebuilding.
+> compilation cache; ④ changing `VERSION` in `src/dt_config.py` only takes effect after rebuilding.
 >
-> **Release package**: `release\DataTransformer_v1.1.6_win64.zip` (contains `DataTransformer.exe`, an end-user
-> `README.txt` and `SHA256SUMS.txt`), plus the maintainer-facing Markdown release notes `release\README.md`.
-> Unzip, verify the hash, run `--selftest` and the artifact is confirmed intact.
+> **Release package**: `release\DataTransformer_v1.1.6_win64.zip` is the **published 1.1.6 artifact (historical
+> record)** — it contains `DataTransformer.exe`, an end-user `README.txt` and `SHA256SUMS.txt`; that build measured
+> 46,789,632 bytes with SHA-256 `9ed118be…` and is kept for traceability only, it is **not** the current version.
+> **1.1.7 needs a fresh package**: run `build_exe.bat` again, then record the real size and SHA-256 of the new
+> artifact (printed by the script, or ask with `Get-FileHash .\DataTransformer.exe -Algorithm SHA256`) and update
+> `release\SHA256SUMS.txt` together with the maintainer-facing Markdown release notes `release\README.md`.
+> Unzip the package, verify the hash, run `--selftest` and the artifact is confirmed intact.
+
+## Packaged exe does not start / crashes
+
+### Symptoms and triage
+
+When double-clicking `DataTransformer.exe` does nothing, flashes and closes, or shows an error, check two things first:
+
+1. **the exe size**: a healthy onefile build is about 44–54 MB. A few hundred KB means the transfer was truncated or
+   only the launcher was copied;
+2. **Event Viewer → Windows Logs → Application** for an `Application Error` entry, and note its **faulting module** and
+   **exception code**.
+
+### Three typical outcomes
+
+① **`Exception code 0xc0000005` with faulting module `data_transformer.dll`** (inside the onefile unpack directory, e.g.
+`%TEMP%\onefile_*\`) = the compiled artifact itself is broken, not the Python code (the crash happens before any Python
+code runs).
+
+Fix: clean rebuild — delete `build\` and the `clcache`, `module-cache` and `scons-msvc-config` entries under
+`%LOCALAPPDATA%\Nuitka\Nuitka\Cache`, and **prefer the Nuitka stable release** (this machine used 4.3, which Nuitka
+itself reports as newer than the stable 4.2.2: `python -m pip install "nuitka==4.2.2"`).
+
+② **Faulting module `Qt6Core.dll` / `qwindows.dll`, or a dialog saying the platform plugin is missing** (`could not find
+or load the Qt platform plugin "windows"`) = the Qt plugins did not ship with the artifact.
+
+Fix: make sure the build command carries `--enable-plugin=pyside6`, and that you distribute the **complete artifact**
+(the whole exe in onefile mode; the whole `build\data_transformer.dist` folder in folder mode).
+
+③ **No event log entry at all, the process vanishes instantly** = most likely quarantined by antivirus, or the onefile
+unpack step is blocked.
+
+Fix: whitelist the exe (and the `%TEMP%` unpack directory), or switch to folder mode (`build_exe.bat folder`), which
+skips the unpack step.
+
+### Bisecting
+
+1. **Folder mode**: `build_exe.bat folder` → `build\data_transformer.dist\DataTransformer.exe` (no argument keeps onefile).
+   If folder mode starts and onefile does not, the problem is in the onefile unpacker/launcher layer;
+2. **Console subsystem**: change `CONSOLE_MODE` at the top of `build_exe.bat` from `attach` to `disable` and rebuild;
+3. **Narrow the dependencies**: temporarily drop `--include-package=src` from the build command to see whether the crash
+   goes away (tells you whether a module inside the `src` package is involved).
+
+The build log lives in `build\nuitka_build.log`; the script echoes its last 30 lines before it ends.
+
+### Run it from a terminal to see the output
+
+```powershell
+cd /d <build directory>
+DataTransformer.exe --selftest
+```
+
+Keep `selftest.log` and the full terminal output when it fails. A Python-level startup exception is appended to
+`startup-error.log` next to the executable (in the current working directory when running from source). Note that a
+**native crash (such as `0xc0000005`) never reaches Python**, so `startup-error.log` stays empty for it — only the Event
+Viewer's faulting module and fault offset can locate that.
 
 
 # Features
@@ -432,6 +505,9 @@ Highlights:
 
 - **Hierarchical selection**: a two-level tree — level 1 multi-selects tables / collections (or Excel sheets),
   level 2 ticks the fields of each table independently;
+- **Custom queries**: an alternative to the hierarchical picker — write a SQL statement for MySQL /
+  PostgreSQL, or a `db.<collection>.find(<filter>)` chain for MongoDB; the statement is validated and
+  previewed before it becomes a data source (see the dedicated section below);
 - **Long-float fidelity**: everything travels through `Decimal`, trailing zeros and significant digits are preserved,
   **scientific notation is never emitted**, and after writing the output is read back for a "numeric equality + text
   equality" check with a difference report (see the dedicated section below);
@@ -456,6 +532,9 @@ Highlights:
   (the raw error is always kept);
 - **Button state coupling**: controls are greyed out until input/output are ready, the database parameters are
   complete, a connection exists and no task is running — no double submissions;
+- **Bottom button column**: to the right of the run log the three buttons read **Reset → Clear log → Start conversion ▶** from
+  top to bottom; all three use `QSizePolicy.Preferred, Expanding` and fill the column vertically (there is no trailing
+  stretch), so maximising the window stretches them instead of leaving blank space underneath;
 - **One-click self-test**: built-in `--selftest` validates the drivers, the engine, file conversions and numeric
   fidelity;
 - **Injection safety**: table and column names are whitelisted and quoted (MySQL backticks / PostgreSQL double quotes).
@@ -493,10 +572,136 @@ JSON uses a **header + row records** structure:
 > The older **column-array** layout (`{"field": [values...]}`) is still readable, so old files keep working.
 
 
+# Custom queries
+
+Besides the "table → field" hierarchical picker, a data source can be a statement you write yourself: SQL for
+MySQL / PostgreSQL, and `db.<collection>.find(<filter>)` chains for MongoDB. The result goes through the same
+reader pipeline as a picked table, so field mapping, output naming and the numeric read-back check after writing
+all keep working.
+
+> Implementation: `SourceSpec.query` / `preview_query` in `src/dt_core.py`, `load_sql_query` in
+> `src/dt_sql.py` and `parse_mongo_query` in `src/dt_mongo.py`; the GUI entry is `QueryDialog` in
+> `data_transformer.py`, the wizard entry is `pick_query_source` in `src/dt_cli.py`.
+
+
+## How to get there
+
+| Front end | Entry point | Interaction |
+| :--- | :--- | :--- |
+| GUI | Click **自定义查询…** ("custom query") to the right of the **表/字段:** ("tables / fields") row in **① Input** | Type the statement in the dialog → **校验并预览** ("validate and preview") → the header and 3 sample rows appear → **确定** ("OK") |
+| Terminal wizard | Choose **② 自由填写查询语句** ("write a query yourself") under 选择数据来源方式 ("data source method") | Type the statement → a read-only statement shows the header and 3 sample rows and asks whether to use it → `:q` cancels (five failed previews in a row abort the step) |
+
+> In the GUI the dialog and the hierarchical picker are mutually exclusive: once enabled the button reads
+> "自定义查询:<label>(点击修改)", and opening it loads the current statement.
+> The query source is cleared only when you **pick tables / fields in the tree and confirm**, switch the input
+> format, drop the database / SSH connection, or press reset; **refreshing the table list (refresh / connect and
+> load) keeps the current data source**, so a statement you already confirmed is never silently replaced by the
+> previous hierarchical selection.
+
+
+## SQL examples
+
+The SQL example built into the GUI's "custom query" dialog can be used as-is (rename table / columns):
+
+```sql
+SELECT Id, Name FROM VirtualProfile WHERE Name LIKE '%ExampleText%' ORDER BY Id LIMIT 100
+```
+
+Read-only statements starting with `WITH` work too:
+
+```sql
+WITH big AS (SELECT Id, Amount FROM VirtualProfile WHERE Amount > 1000)
+SELECT Id, Amount FROM big ORDER BY Amount DESC
+```
+
+Any statement is allowed (including `UPDATE` / `DELETE` and DDL); it runs verbatim without identifier quoting,
+**at your own risk**. Read-only classification looks only at the first keyword (leading `--` line comments and
+`/* */` block comments are skipped first), against the whitelist
+`select` / `with` / `show` / `describe` / `desc` / `explain` / `values` / `table`. A statement starting with `with`
+is scanned again, and any of `insert` / `update` / `delete` / `merge` / `drop` / `alter` / `create` / `truncate` /
+`grant` / `revoke` / `call` / `copy` makes it non-read-only.
+
+
+## MongoDB examples
+
+The MongoDB example built into the dialog is mongosh syntax itself (unquoted keys, an `$expr` compound condition) and
+can be copied verbatim:
+
+```javascript
+db.TestCollections.find({ Age: { $gte: 25, $lte: 45 }, Example: "Text", $expr: { $and: [{ $isArray: "$Hobbies" }, { $gt: [ { $size: "$Hobbies" }, 3 ] }]}})
+```
+
+Strict JSON keeps working too:
+
+```javascript
+db.VirtualProfile.find({"Amount": {"$gt": 1000}})
+  .projection({"Id": 1, "Name": 1, "Amount": 1})
+  .sort({"Amount": -1})
+  .limit(50)
+```
+
+Only `db.<collection>.find(<filter>)` is supported, optionally followed by `.sort({...})` / `.limit(n)` /
+`.projection({...})`: any order, each written once, newlines and a trailing semicolon allowed, and `.limit()` takes
+a non-negative integer.
+
+**The arguments accept mongosh syntax**: keys may be unquoted (`{ Age: { $gte: 25 } }`), strings may use single
+quotes, and trailing commas inside objects / arrays are dropped. The parser first rewrites the argument into strict
+JSON with a character-level state machine (bare keys get quoted, single-quoted strings are normalised) and parses it
+only afterwards, so a statement copied straight out of mongosh can be pasted in. The result must still be a JSON
+literal: **no** constructors such as `ObjectId()` / `ISODate()` / `NumberDecimal()` (use a plain literal, e.g. the
+date `"2026-08-29T00:00:00"`), and **not supported**: `aggregate`, `findOne`, `count`, `distinct` and other
+methods, or `db.<db>.<collection>.find(...)`; when the statement does not match, the error message carries a usable
+example plus the "raw text before normalisation", which pinpoints what to fix.
+
+
+## Read-only vs non-read-only
+
+| Statement | Preview | Execution | Usable as an export source |
+| :--- | :--- | :--- | :--- |
+| Read-only (first keyword on the whitelist; every MongoDB query counts as read-only) | **Runs once** for the header and 3 sample rows, then closes the cursor immediately | Normal execution; read-only SQL uses the server-side streaming cursor | Yes |
+| Non-read-only (`UPDATE` / `DELETE` / `INSERT` / DDL …) | **Not executed**; only the note "该语句不是只读查询,预览已跳过" ("not read-only, preview skipped") | Runs after a second confirmation, on a plain client cursor (a named cursor can only `DECLARE ... SELECT`) | Yes with a result set, no without one |
+
+- **Execute means commit**: a successful non-read-only statement is committed at once, and writes **cannot be rolled
+  back**;
+- **No result set**: after `UPDATE` / `DELETE` / DDL the tool reports "语句已执行(影响 N 行),但没有返回结果集,无法作为导出
+  数据源" ("executed, N rows affected, but no result set — it cannot be an export source"); an unknown row count shows
+  as `-1`;
+- **Second confirmation**: in the GUI it is the question "该语句不是只读查询,执行会修改数据库(语句返回结果集时仍会导出),确定使用吗?"
+  (default answer "No"); in the terminal wizard it is a prompt whose default answer is "no" (five failed previews
+  in a row abort the step).
+
+
+## How this interacts with existing features
+
+- **No column pruning**: the result is exactly what the statement returns (for MongoDB, what `projection` selects);
+  there is no field-subset picker;
+- **Field mapping still applies**: the "field mapping preview / adjust" dialog can map query columns onto target
+  fields, with duplicate-name validation;
+- **Output naming**: the query label is used by default — for SQL the table name after the first `from`
+  (`schema.table` keeps both parts), falling back to "自定义查询" ("custom query"); for MongoDB the collection name.
+  It can still be renamed in the output configuration;
+- **Everything else is unchanged**: directory mode, duplicate-file handling, batched writes and the numeric
+  read-back check (with blocking on failure) behave exactly as before.
+
+
+## Common errors
+
+| Message | Cause | Fix |
+| :--- | :--- | :--- |
+| `查询语句语法不正确,应以 db.<集合>.find(<filter>) 开头` ("syntax error, should start with db.<collection>.find(<filter>)") | The statement is not a `db.<collection>.find(...)` chain (for example `aggregate`) | Rewrite it along the example in the message |
+| `查询语句里 filter 不是合法 JSON: ...` ("filter is not valid JSON") | A value is not a valid JSON literal — typically an `ObjectId()` / `ISODate()` / `NumberDecimal()` constructor, or an unbalanced quote. Unquoted keys, single-quoted strings and trailing commas are **accepted** | Replace the constructor with a plain value (write the hex id as `"507f1f77bcf86cd799439011"`), use the "raw text before normalisation" in the message to locate it, then validate again |
+| `查询语句不支持 .aggregate()` / `查询语句在 ... 处有多余内容` ("method not supported" / "trailing content") | A method other than `find`, or a second statement after the semicolon | Use only `sort` / `limit` / `projection`, one statement at a time |
+| The driver's SQL syntax / missing table / permission error | The statement itself, or the connection lacks privileges | The preview reports it verbatim (the GUI adds a localised hint); fix it and validate again |
+| `该语句不是只读查询,预览已跳过;执行会修改数据库(语句返回结果集时仍会导出)` ("not read-only, preview skipped") | The first keyword is not whitelisted, or `with` contains a data-modifying keyword | Refused by default; answer "yes" to the second confirmation only when you really mean to write |
+| `语句已执行(影响 N 行),但没有返回结果集,无法作为导出数据源` ("executed, N rows affected, no result set") | A write statement or DDL returns no result set | The statement is already committed; switch to `... RETURNING ...` or to a read-only query |
+| `集合【X】里没有可用字段,无法作为导出数据源(请检查集合是否为空)` ("collection has no usable fields — is it empty?") | An empty collection, or an exclusion-only `projection` that drops every field | Make sure the collection is not empty and use an inclusion `projection` |
+| `没有填写查询语句` ("no query statement") | Previewing with an empty statement | Type a statement first |
+
+
 # Long-float fidelity and avoiding scientific notation
 
 High-precision values (many decimals, very large integers, values written in scientific notation) must stay
-**numerically equal and textually identical** in every direction. Implementation notes (see `dt_numeric.py`):
+**numerically equal and textually identical** in every direction. Implementation notes (see `src/dt_numeric.py`):
 
 | Stage | Rule |
 | :--- | :--- |
@@ -543,10 +748,24 @@ import/export flow stays identical to a local database.
    (figure 3);
 4. back in the **Database connection** card enter the remote database address / port / user / password / database and
    click **Connect and load tables**;
-5. then tick "table → fields" as usual and export or import (see figures 4 and 5 for large-table progress).
+5. then tick "table → fields" as usual and export or import (see figures 4 and 5 for large-table progress);
+6. to switch database type just change **Database type**: the **tunnel stays up** — the tool only re-points the
+   forward target at the new `host:port` and logs `SSH 隧道已重新指向 127.0.0.1:5432` (the port is whatever you
+   typed); then click **Connect and load tables** again.
 
 > The tunnel only listens on local `127.0.0.1` and never exposes a port to the network; clicking **Disconnect SSH**
 > or closing the program releases it.
+
+> **Switching database type never drops the tunnel**: the old database connection is discarded (reconnect with
+> **Connect and load tables**), but the SSH channel is reused as-is — `SSHTunnel.retarget` in the engine only resets
+> the forward target, so the local listening port already in use keeps working. On top of that, every call that reads
+> the connection configuration (connect, read, query preview) first syncs the tunnel target to the current
+> `host:port`, falling back to the default port of the selected database type when the field is empty or out of range.
+
+> **Tunnel liveness check**: the GUI probes the tunnel every 3 seconds; as soon as it notices the tunnel is gone it
+> logs `SSH 隧道已断开:<tunnel info>,请重新连接` ("tunnel lost — reconnect") **exactly once**, then automatically
+> clears the database connection and refreshes the status bar and button states. The probe only runs while a tunnel
+> exists, so the warning never floods the log. Click **Connect SSH** to rebuild the channel and carry on.
 
 
 ## One-click Demo/Example.txt sample
@@ -643,6 +862,29 @@ The equivalent on Linux / macOS:
 The run log is shown in the "④ 运行日志" area of the main window, colour-coded by level, with a one-click
 **Clear log** button.
 
+**An error yields one localised hint, nothing more**: the log and the dialog show the Chinese text produced by
+`describe_db_error` / `describe_ssh_error` (usually one or two lines that name the failing part — host / port /
+user / password / database name / privileges — and keep the raw error on the last line), and by default **no Python
+traceback and no source line numbers** are printed, so end users are not handed a stack dump.
+When an SSH tunnel is active and the error looks like a broken connection (`abort` / `timeout` / `timed out` /
+`refused`), one extra hint is appended: "当前启用了 SSH 隧道,隧道可能已断开,请检查【连接 SSH】状态后重试"
+("an SSH tunnel is enabled — it may have dropped, check the Connect SSH state and retry").
+
+For the full traceback, set the environment variable `DT_DEBUG=1` and run again:
+
+```powershell
+set DT_DEBUG=1
+DataTransformer.exe --selftest
+```
+
+```bash
+DT_DEBUG=1 ./data_transformer.sh
+```
+
+> With `DT_DEBUG` set the GUI appends `traceback.format_exc()` to the log, and the terminal wizard re-raises the
+> exception in its last-resort handler. `DT_DEBUG` is off by default, which is why normal runs only show that
+> localised hint.
+
 If an import or export fails, keep the log content and attach it when you report the issue or open a ticket.
 
 
@@ -674,6 +916,9 @@ database name are empty).
   PostgreSQL double quotes), which prevents SQL injection through name concatenation. As a consequence, Excel sheet
   names and header cells containing spaces, brackets or dashes must be renamed before importing into a database
   (exporting to JSON / CSV / Excel has no such restriction);
+- **Custom queries**: the statement is written by the user and executed verbatim, so it bypasses the identifier
+  whitelist and quoting above — it is the only entry point that does; a non-read-only statement changes the
+  database and cannot be rolled back, so only run statements you trust;
 - **SSH tunnel**: the local listener always binds `127.0.0.1`, so no port is exposed to the local network;
 - **Configuration permissions**: tightened to `600` on Linux / macOS;
 - **CSV formula injection**: exported CSV / Excel keeps the data as-is. Text starting with `=`, `+`, `-` or `@` may be
@@ -684,9 +929,9 @@ database name are empty).
 # Tests
 
 ```bash
-python -m pytest tests/ -q                  # all unit and integration tests
+python -m pytest tests/ -q                  # all unit and integration tests (189 in total)
 python -m pytest tests/test_numeric.py -q   # long-float fidelity suite
-python dt_core.py                           # headless self-test (same as --selftest), writes selftest.log
+python -m src.dt_core                       # headless self-test (same as --selftest), writes selftest.log
 ```
 
 | Test file | Coverage |
@@ -696,6 +941,10 @@ python dt_core.py                           # headless self-test (same as --self
 | `tests/test_mongo.py` | MongoDB value conversion (Decimal128 / int64 overflow / nested structures / unsafe key names), `_id` handling and **real server** round-trips (skipped when no mongod is running) |
 | `tests/test_cli.py` | End-to-end terminal wizard interaction (piped): full flow, output paths, nothing written on abort, no stack traces |
 | `tests/test_gui.py` | Key GUI logic (offscreen): window construction, switching between the three database engines, connection target rewriting for SSH tunnels, field mapping, hierarchical selection, progress-bar lifecycle, connection-button readiness |
+| `tests/test_query.py` | Custom queries: SQL read-only classification (including the `WITH` data-modifying CTE hardening), streaming vs plain cursor routing and commit semantics for free statements, the no-result-set error, MongoDB `find` chain parsing and error hints, **mongosh compatibility (bare keys / single quotes / trailing commas)**, `preview_query` leaving non-read-only statements unexecuted, and an end-to-end query source written to CSV |
+
+> Cases per file: `test_cli.py` 17 / `test_engine.py` 21 / `test_gui.py` 41 / `test_mongo.py` 18 /
+> `test_numeric.py` 27 / `test_query.py` 65 — **189** in total.
 
 > The integration tests need a real environment: PostgreSQL / MySQL / MongoDB cases are skipped automatically when
 > the service or the environment variables are missing, so they never fail the suite.
@@ -714,13 +963,15 @@ python dt_core.py                           # headless self-test (same as --self
 | Mojibake with Chinese text | Run `chcp 65001` in the Windows console first, and pick `UTF-8 with BOM` or `GBK` as the CSV encoding |
 | `无法连接 MongoDB ... ServerSelectionTimeoutError` | Check that mongod is running, the port and `authSource`; for remote servers tick the SSH tunnel |
 | Million-row imports are slow | Increase "rows per batch" (default 1000, try 5000–20000) and check the server side (`max_allowed_packet` for MySQL, disk I/O) |
+| The log shows only a localised hint after a failure — how do I see the code path? | Tracebacks and source line numbers are off by default; set `DT_DEBUG=1` before launching (`set DT_DEBUG=1` on Windows, `DT_DEBUG=1 ./data_transformer.sh` on Linux / macOS) and the full `traceback` is appended to the log |
+| The log says `SSH 隧道已断开:…,请重新连接` ("tunnel lost, reconnect") | The 3-second liveness probe found the channel gone and cleaned up the database connection and buttons automatically; click **Connect SSH** to rebuild the channel, then **Connect and load tables** again (switching the database type does not drop the tunnel) |
 
 
 # Acceptance checklist
 
 - [x] Windows 10/11 GUI (PySide6): input parameters, output parameters, run log + start button, progress bar;
 - [x] Windows single-file executable built with Nuitka (`build_exe.bat`, validating size and SHA-256);
-- [x] Linux / macOS interactive terminal tool (`data_transformer.sh` → `dt_cli.py`) using **questionary** for dynamic
+- [x] Linux / macOS interactive terminal tool (`data_transformer.sh` → `python -m src.dt_cli`) using **questionary** for dynamic
       format and parameter selection, no GUI required;
 - [x] Dependency installation and usage instructions for Ubuntu, Debian, Fedora and CentOS;
 - [x] MySQL, PostgreSQL and **MongoDB** support plus xlsx, csv and json files;
@@ -732,7 +983,13 @@ python dt_core.py                           # headless self-test (same as --self
       truncated significant digits, no `e`/`E` scientific notation;
 - [x] A visible numeric verification mechanism with a difference report (read back after writing, block or confirm);
 - [x] Data type conversion, NULLs, date/time, encoding, batch writes, error handling, logging and progress reporting;
-- [x] Unit and integration tests (including the long-float suite and real database round-trips).
+- [x] Unit and integration tests (including the long-float suite and real database round-trips);
+- [x] Free-form SQL / MongoDB query statements, validated and previewed before use (the GUI "自定义查询…" dialog
+      and the wizard's "② 自由填写查询语句" branch);
+- [x] The SQL and MongoDB examples built into the custom-query dialog can be used as-is (the MongoDB one is mongosh
+      syntax: bare keys, single quotes and trailing commas all parse);
+- [x] Switching the database type never drops the SSH tunnel (only the forward target is reset), and a dropped tunnel
+      is reported once in the log with the connection and button state cleaned up automatically.
 
 
 # AI-assisted development

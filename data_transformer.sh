@@ -26,7 +26,7 @@ cd "$SCRIPT_DIR" || exit 1
 
 VENV_DIR="$SCRIPT_DIR/.venv"
 REQUIREMENTS="$SCRIPT_DIR/requirements.txt"
-WIZARD="$SCRIPT_DIR/dt_cli.py"
+WIZARD="$SCRIPT_DIR/src/dt_cli.py"
 GUI_APP="$SCRIPT_DIR/data_transformer.py"
 CORE_PACKAGES="openpyxl pymysql psycopg2-binary pymongo questionary paramiko"
 
@@ -153,7 +153,7 @@ usage() {
 
 说明:
   首次使用请先赋予执行权限: chmod +x data_transformer.sh
-  其余参数会原样传给 dt_cli.py(例如 --version)。
+  其余参数会原样传给 src.dt_cli 模块(例如 --version)。
 EOF
 }
 
@@ -161,14 +161,24 @@ EOF
 # 参数解析
 # ---------------------------------------------------------------------------
 MODE="wizard"
+GUI_ARGS=""
+USE_CHECK=0
+USE_GUI=0
 for arg in "$@"; do
     case "$arg" in
         -h|--help)     usage; exit 0 ;;
-        --check)       MODE="check" ;;
-        --gui)         MODE="gui" ;;
+        --check)       MODE="check"; USE_CHECK=1 ;;
+        --gui)         MODE="gui"; USE_GUI=1 ;;
         --wizard)      MODE="wizard" ;;
+        *)             GUI_ARGS="$GUI_ARGS $arg" ;;
     esac
 done
+
+# --check 只验环境、--gui 要起界面:同时给出时按用法错误直接失败,不猜用户意图
+if [ "$USE_CHECK" = "1" ] && [ "$USE_GUI" = "1" ]; then
+    fail "参数冲突:--check 只检查运行环境,--gui 启动图形界面,两者不能同时使用。"
+    exit 2
+fi
 
 info "DataTransformer 启动中 ..."
 
@@ -190,6 +200,15 @@ if [ "$MODE" = "check" ]; then
         ok "环境检查完成。运行 ./data_transformer.sh 进入交互式向导。"
     else
         warn "缺少必需依赖 openpyxl:运行 ./data_transformer.sh 会自动创建 .venv 并安装。"
+    fi
+    # 入口自检:向导模块能导入才算真的可用(路径与依赖问题都在这里暴露)
+    if "$PY" -c "import src.dt_cli" >/dev/null 2>&1; then
+        ok "入口自检通过:src/dt_cli.py 可正常导入。"
+    else
+        fail "入口自检失败:无法导入 src.dt_cli。"
+        printf '    请在项目根目录执行本脚本(当前目录:%s)\n' "$SCRIPT_DIR"
+        printf '    若依赖已损坏,请删除 .venv 后重新执行本脚本重建虚拟环境\n'
+        exit 1
     fi
     exit 0
 fi
@@ -222,10 +241,11 @@ case "$MODE" in
         fi
         [ -f "$GUI_APP" ] || { fail "找不到 $GUI_APP"; exit 1; }
         info "启动图形界面 ..."
-        exec "$PY" "$GUI_APP"
+        # GUI_ARGS 故意不加引号:拆成多个参数原样传给图形界面入口
+        exec "$PY" "$GUI_APP" $GUI_ARGS
         ;;
     *)
         [ -f "$WIZARD" ] || { fail "找不到 $WIZARD"; exit 1; }
-        exec "$PY" "$WIZARD" "$@"
+        exec "$PY" -m src.dt_cli "$@"
         ;;
 esac
