@@ -32,7 +32,8 @@
 
 **数据库连接**卡片支持 MySQL / PostgreSQL / MongoDB；「端口」是可下拉、可手填的输入框，
 **留空即自动使用该类型的默认端口**（MySQL 3306 / PostgreSQL 5432 / MongoDB 27017）。
-最上方的 **SSH 通道**卡片：勾选后填写的「主机 / 端口」是**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`），
+
+**SSH 通道**卡片：勾选后填写的「主机 / 端口」是**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`），
 本机连接自动改走通道端口；未连接时状态显示 `SSH 通道:未连接`，连接后显示
 `127.0.0.1:<本地端口> → SSH 用户@主机:22 → 127.0.0.1:5432`。
 
@@ -45,10 +46,10 @@
 
 点「测试连接」后弹窗给出服务端版本（PostgreSQL 18.6），日志区同时打印
 `SSH 通道已建立: 127.0.0.1:55960 → SSH …@172.24.208.28:22 → 127.0.0.1:5432` 与
-`连接成功: PostgreSQL …`。图中的用户名、密码等敏感字段已打码，实际使用时按自己的环境填写。
+`连接成功: PostgreSQL …`
 
 
-## 表格导与进度提示
+## 表格导入进度提示
 
 <div align="center">
 <img src="images/img04.png" alt="PostgreSQL 经 SSH 通道导出 Excel 的进度" width="100%">
@@ -65,8 +66,9 @@ PostgreSQL（经 SSH 通道）→ Excel：日志每 2 万行打印一次，
 </div>
 
 `Excel 导出完成: D:\Downloads\virtual_data.xlsx（Sheet [VirtualProfile]，共 1,000,001 行）`；
-写入后自动回读输出做「数值等值 + 文本等值」双重比对，`数值保真校验：通过（字段 3 个 / 比对 575 个值）`
-—— 百万行级别依然稳定：服务端流式游标不会把整表读进内存，Excel 使用 openpyxl 流式模式。
+写入后自动回读输出做「数值等值 + 文本等值」双重比对
+`数值保真校验：通过（字段 3 个 / 比对 575 个值）`
+百万行级别依然稳定：服务端流式游标不会把整表读进内存，Excel 使用 openpyxl 流式模式。
 
 
 ## MongoDB → JSON
@@ -76,6 +78,7 @@ PostgreSQL（经 SSH 通道）→ Excel：日志每 2 万行打印一次，
 </div>
 
 选中 MongoDB 时，数据库卡片会多出 **连接 URI** 与 **认证库 authSource** 两行（其他类型自动隐藏）。
+
 图中经 SSH 通道连接 `127.0.0.1:27017`、认证库，把集合导出为 `MyData.json`
 （一级键 `[VirtualProfile]`，共 4 行）；集合名 ↔ JSON 一级键、文档字段 ↔ 首行表头一一对应。
 
@@ -98,7 +101,7 @@ JSON 文本单元格自动还原为嵌套结构（键名含 `.` 或以 `$` 开�
 <img src="images/img10.png" alt="Linux 上的图形界面" width="100%">
 </div>
 
-同一套界面在 Ubuntu 24.04 上运行 **MySQL → CSV 目录模式**：目录名 = 数据库名，目录下每个表一个 `.csv`
+同一套界面在 Ubuntu 上运行 **MySQL → CSV 目录模式**：目录名 = 数据库名，目录下每个表一个 `.csv`
 （图中导出到 `/home/.../Cty/VirtualData.csv`，共 20,000 行），底部状态栏显示「已连接数据库 | 就绪」。
 
 
@@ -210,7 +213,7 @@ DataTransformer/
 
 # 下载
 
-目前提供 Windows 便携版、Windows bat 源码运行,以及 Linux / macOS 命令行向导三种方式。
+目前提供 Windows 便携版、Windows bat 源码运行，以及 Linux / macOS 命令行向导三种方式。
 
 
 ## Windows
@@ -220,10 +223,6 @@ DataTransformer/
 - Windows 10 及以上版本
 - 仅支持 64 位（x86_64）系统
 
-**版本说明：**
-
-- **当前版本**：**Ver1.1.7**（见 `src/dt_config.py` 的 `VERSION`，`DataTransformer.exe --version` 打印的就是它）；
-  历史版本归档在 `Ver1.0.0` … `Ver1.1.6`。
 - **便携版**：`DataTransformer.exe` 为 Nuitka 打包的单文件程序，无需安装 Python，下载后双击即可使用。
 - **bat 运行**：`run.bat` 使用本机 Python 直接运行源码，适合开发调试。
 
@@ -233,7 +232,7 @@ DataTransformer/
 **系统要求：**
 
 - 主流发行版均可：Debian / Ubuntu / CentOS / Rocky / Fedora，以及 macOS
-- Python 3.8+（启动脚本会自动探测 `python3` / `python3.x` / `python`）
+- Python 3.10+（启动脚本会自动探测 `python3` / `python3.x` / `python`）
 
 **使用方式：**
 
@@ -254,18 +253,15 @@ chmod +x data_transformer.sh   # 首次使用：赋予执行权限
 
 **启动脚本会自动完成：**
 
-- 探测可用的 Python 3.8+ 解释器；
+- 探测可用的 Python3 解释器；
 - 检查依赖，缺少时询问是否在项目目录创建 `.venv` 并自动安装
-  （Debian / Ubuntu 新版 pip 受 PEP 668 保护，虚拟环境是最稳妥的方式，实际界面见 图 9）；
-- 提示 `pymysql` / `psycopg2` / `paramiko` 的安装情况（仅影响对应的数据库 / SSH 功能，
-  Excel / JSON / CSV 互转始终可用）；
-- 再次运行会直接复用已建好的 `.venv`。
+- 提示 `pymysql` / `psycopg2` / `paramiko` 的安装情况（仅影响对应的数据库 / SSH 功能，Excel / JSON / CSV 互转始终可用）。
 
 **常用参数：**
 
 ```bash
 ./data_transformer.sh --check      # 只检查运行环境，不进入向导
-./data_transformer.sh --demo       # 预填 Demo/Example.txt 的 SSH + PostgreSQL 示例参数
+./data_transformer.sh --demo       # 预填 SSH + PostgreSQL 示例参数
 ./data_transformer.sh --selftest   # 无界面自检，结果写入 selftest.log
 ./data_transformer.sh --gui        # 启动图形界面（需 PySide6）
 ./data_transformer.sh --help       # 全部参数
@@ -332,21 +328,17 @@ python -m src.dt_cli --selftest                            # 无界面自检
 ```
 
 
-# 打包为 exe
-
-双击 `build_exe.bat`，脚本会自动安装依赖并调用 Nuitka 打包（首次约 5~8 分钟）：
-
+双击 `build_exe.bat`
 ```powershell
 build_exe.bat
 ```
 
 打包产物：
-
 ```text
 build\DataTransformer.exe
 ```
 
-**完整打包命令**（与 `build_exe.bat` 一致，`--include-package=src` 用于把 7 个引擎模块所在的 `src` 包一并收进产物）：
+**完整打包命令**：
 
 ```powershell
 python -m nuitka --standalone --onefile --enable-plugin=pyside6 ^
@@ -357,66 +349,6 @@ python -m nuitka --standalone --onefile --enable-plugin=pyside6 ^
   --include-package=et_xmlfile --include-package=src ^
   --output-dir=build --output-filename=DataTransformer data_transformer.py
 ```
-
-> `--windows-console-mode=attach`：双击启动时依然没有控制台窗口，但从命令行运行 `DataTransformer.exe --version`
-> 或 `--selftest` 时能看到输出（`disable` 会让这两条命令的输出完全不可见）。
-
-> **发布包**：`release\DataTransformer_v1.1.6_win64.zip` 是 **1.1.6 已发布产物（历史记录）**——内含
-> `DataTransformer.exe` + 面向最终用户的 `README.txt` + `SHA256SUMS.txt`，当时的产物为 46,789,632 字节、
-> SHA-256 `9ed118be…`，仅供回溯核对，**不代表当前版本**。
-> **1.1.7 需重新打包后记录实际大小与 SHA-256**：重新执行 `build_exe.bat` 生成新的 exe，打包结束后按脚本打印的
-> 大小 / 哈希（或 `Get-FileHash .\DataTransformer.exe -Algorithm SHA256`）记录实际值，并同步更新
-> `release\SHA256SUMS.txt` 与面向维护者的 Markdown 发布说明 `release\README.md`。
-> 解压后核对哈希并执行 `--selftest` 即可确认产物完整。
-
-## 打包后的 exe 无法启动 / 崩溃排查
-
-### 症状与判据
-
-双击 `DataTransformer.exe` 没反应、一闪而过或直接报错时，先看两件事：
-
-1. **exe 大小**：onefile 正常约 44–54 MB。只有几百 KB 说明传输被截断或只复制了启动器；
-2. **事件查看器 → Windows 日志 → 应用程序**里有没有 `Application Error` 记录，记下其中的**出错模块**与**异常代码**。
-
-### 三种典型结果与处理
-
-① **`异常代码 0xc0000005`，出错模块是 `data_transformer.dll`**（位于 onefile 解包目录内，如 `%TEMP%\onefile_*\`）=
-编译产物本身有问题，与 Python 代码无关（该崩溃发生在 Python 代码开始执行之前）。
-
-处理：干净重建——删掉 `build\` 与 `%LOCALAPPDATA%\Nuitka\Nuitka\Cache` 下的 `clcache`、`module-cache`、
-`scons-msvc-config`，并**优先使用 Nuitka 稳定版**（本机曾用 4.3，Nuitka 自己提示它比稳定版 4.2.2 更新：
-`python -m pip install "nuitka==4.2.2"`）。
-
-② **出错模块是 `Qt6Core.dll` / `qwindows.dll`，或弹窗提示找不到平台插件**（`could not find or load the Qt platform
-plugin "windows"`）= Qt 插件没有随包。
-
-处理：确认打包命令带 `--enable-plugin=pyside6`，并且分发的是**完整产物**（onefile 复制整个 exe；folder 模式复制整个
-`build\data_transformer.dist` 文件夹）。
-
-③ **完全没有事件日志、进程瞬间消失** = 大概率被杀软隔离，或 onefile 解包被拦。
-
-处理：给 exe 与 `%TEMP%` 解包目录加白名单，或改用 folder 模式（`build_exe.bat folder`）绕开解包环节。
-
-### 二分手段
-
-1. **目录模式对比**：`build_exe.bat folder` → 产物 `build\data_transformer.dist\DataTransformer.exe`（不带参数时仍是 onefile）。
-   目录模式能启动而 onefile 不能，说明问题出在 onefile 解包/启动器这一层；
-2. **控制台子系统对比**：把 `build_exe.bat` 顶部的 `CONSOLE_MODE` 由 `attach` 改成 `disable` 后重新打包；
-3. **收窄依赖**：必要时临时去掉打包命令里的 `--include-package=src`，看崩溃是否消失（用于判断是否与 `src` 包内模块相关）。
-
-构建日志在 `build\nuitka_build.log`，脚本会在构建结束前回显最后 30 行。
-
-### 从命令行运行以便看到输出
-
-```powershell
-cd /d <build 目录>
-DataTransformer.exe --selftest
-```
-
-失败时把 `selftest.log` 与命令行完整输出一并留存。启动期若抛出 Python 层异常，会追加写入 exe 同级目录的
-`startup-error.log`（源码运行时写到当前工作目录）。注意**原生崩溃（如 `0xc0000005`）不经过 Python 层**，
-`startup-error.log` 里不会有它的记录，只能靠事件查看器的出错模块与错误偏移定位。
-
 
 # 功能说明
 
@@ -433,8 +365,8 @@ DataTransformer.exe --selftest
 主要特性：
 
 - **层级勾选**：树形下拉框两层结构，第一层多选数据表 / 集合（或 Excel Sheet），第二层每张表独立勾选字段；
-- **自定义查询**：与层级勾选并列的可选项——SQL 数据库直接写 SQL 语句，MongoDB 写 `db.<集合>.find(<filter>)` 链式语句，先校验预览表头与样本行再作为数据源（详见下文专项说明）；
-- **长浮点数保真**：全程 `Decimal` 中转，不丢尾零、不截断有效数字、**输出不出现科学计数法**，写入后自动回读做「数值等值 + 文本等值」双重校验并输出差异报告（详见下文专项说明）；
+- **自定义查询**：与层级勾选并列的可选项——SQL 数据库直接写 SQL 语句，MongoDB 写 `db.<集合>.find(<filter>)` 链式语句，先校验预览表头与样本行再作为数据源；
+- **长浮点数保真**：全程 `Decimal` 中转，不丢尾零、不截断有效数字、**输出不出现科学计数法**，写入后自动回读做「数值等值 + 文本等值」双重校验并输出差异报告；
 - **字段映射**：自动按同名映射（Sheet 名 ↔ 表名、首行表头 ↔ 数据库字段名），支持手动覆盖并做重名校验；
 - **SSH 通道**：连接指定 IP 服务器上的 MySQL / PostgreSQL / MongoDB，无需在服务器上开放数据库端口；
 - **命令行向导**：`./data_transformer.sh` 通过 **questionary** 动态选择 Input/Output 格式、连接参数、表 / 集合与字段；
@@ -466,7 +398,7 @@ DataTransformer.exe --selftest
 > 映射默认**按同名自动匹配**，并可在图形界面「字段映射预览 / 调整」或命令行向导中选择手动覆盖
 > （例如把 `姓名` 映射为 `Name`）；映射后的重名字段会在写入前被拦截并提示。
 
-JSON 采用**表头 + 行记录**结构：
+JSON 采用**表头 + 行记录**结构。
 
 ```json
 {
@@ -480,158 +412,7 @@ JSON 采用**表头 + 行记录**结构：
 }
 ```
 
-> `HeaderFields` 为字段名列表，`Data` 中的 `RowN` 为第 N 行数据数组（行号从 1 开始）。
-> 旧版**列数组**结构（`{"字段名": [值...]}`）仍可正常读取，向后兼容。
-
-
-# 自定义查询语句
-
-数据源除了「表 → 字段」层级勾选，也可以直接写一条查询语句：SQL 数据库（MySQL / PostgreSQL）写 SQL，
-MongoDB 写 `db.<集合>.find(<filter>)` 及其链式调用。查询结果与层级勾选共用同一条 Reader 管道，
-字段映射、输出命名与写入后的数值保真回读校验都照常生效。
-
-> 实现位置：`src/dt_core.py` 的 `SourceSpec.query` / `preview_query`、`src/dt_sql.py` 的 `load_sql_query`、
-> `src/dt_mongo.py` 的 `parse_mongo_query`；图形界面入口是 `data_transformer.py` 的 `QueryDialog`，
-> 终端向导入口是 `src/dt_cli.py` 的 `pick_query_source`。
-
-
-## 入口
-
-| 前端 | 进入方式 | 交互 |
-| :--- | :--- | :--- |
-| 图形界面 | **① 输入配置** 的「表/字段:」行右侧点击 **自定义查询…** | 弹窗内填写语句 → 点 **校验并预览** → 显示表头与前 3 行样本 → 点 **确定** |
-| 终端向导 | **选择数据来源方式** 选 **② 自由填写查询语句** | 输入语句 → 只读语句显示表头与 3 行样本并询问是否采用 → 输入 `:q` 取消（连续 5 次预览失败会自动中止） |
-
-> 图形界面里「自定义查询…」与层级勾选互斥：启用后按钮变为「自定义查询:<标签>(点击修改)」，点开会载入当前语句。
-> 只有**在树里重新勾选表 / 字段并确认**、切换输入格式、断开数据库或 SSH 通道、点「初始化」时才停用该查询数据源；
-> **刷新表结构（刷新表 / 连接并加载表）不会改变当前数据源**，避免已确认的语句被悄悄换回层级勾选。
-
-
-## SQL 示例
-
-图形界面「自定义查询语句」对话框里内置的 SQL 示例可以直接套用（改表名 / 字段名即可）：
-
-```sql
-SELECT Id, Name FROM VirtualProfile WHERE Name LIKE '%ExampleText%' ORDER BY Id LIMIT 100
-```
-
-以 `WITH` 开头的只读语句同样可用：
-
-```sql
-WITH big AS (SELECT Id, Amount FROM VirtualProfile WHERE Amount > 1000)
-SELECT Id, Amount FROM big ORDER BY Amount DESC
-```
-
-SQL 允许任意语句（含 `UPDATE` / `DELETE` / DDL），语句原样执行、不做标识符引用，**风险由使用者自负**。
-只读判定只看首个关键字（开头的 `--` 行注释与 `/* */` 块注释会先被跳过），白名单为
-`select` / `with` / `show` / `describe` / `desc` / `explain` / `values` / `table`；
-以 `with` 开头时还会再扫一遍整条语句，出现 `insert` / `update` / `delete` / `merge` / `drop` / `alter` /
-`create` / `truncate` / `grant` / `revoke` / `call` / `copy` 等关键字即判为非只读。
-
-
-## MongoDB 示例
-
-对话框里内置的 MongoDB 示例本身就是 mongosh 写法（键不带引号、含 `$expr` 组合条件），可原样使用：
-
-```javascript
-db.TestCollections.find({ Age: { $gte: 25, $lte: 45 }, Example: "Text", $expr: { $and: [{ $isArray: "$Hobbies" }, { $gt: [ { $size: "$Hobbies" }, 3 ] }]}})
-```
-
-严格 JSON 写法也照旧支持：
-
-```javascript
-db.VirtualProfile.find({"Amount": {"$gt": 1000}})
-  .projection({"Id": 1, "Name": 1, "Amount": 1})
-  .sort({"Amount": -1})
-  .limit(50)
-```
-
-只支持 `db.<集合>.find(<filter>)`，其后可链式追加 `.sort({...})` / `.limit(n)` / `.projection({...})`：
-三者任意顺序、各写一次，允许换行与结尾分号，`.limit()` 的参数必须是非负整数。
-
-**实参兼容 mongosh 写法**：键可以不带引号（`{ Age: { $gte: 25 } }`）、字符串可以用单引号、对象 / 数组末尾多余的
-逗号会被忽略——解析器先按字符状态机把实参规整成严格 JSON（裸键补双引号、单引号串统一改写），再交给 JSON 解析，
-因此从 mongosh 复制出来的语句可以直接粘贴。规整之后仍然必须是 JSON 字面量：
-**不支持** `ObjectId()` / `ISODate()` / `NumberDecimal()` 这类构造函数（请换成普通字面量，例如日期写
-`"2026-08-29T00:00:00"`），也**不支持** `aggregate`、`findOne`、`count`、`distinct` 等其它方法以及
-`db.<库>.<集合>.find(...)`；不符合格式时报错信息会附上可用示例与「规整前的原文」，便于定位。
-
-
-## 只读与非只读的行为差异
-
-| 语句类型 | 预览 | 执行 | 能否作为导出数据源 |
-| :--- | :--- | :--- | :--- |
-| 只读（首关键字在白名单内；MongoDB 查询全部按只读处理） | **执行一次**取表头与前 3 行样本，取完立即关闭游标 | 正常执行，SQL 只读语句走服务端流式游标 | 能 |
-| 非只读（`UPDATE` / `DELETE` / `INSERT` / DDL 等） | **不执行**，只提示「该语句不是只读查询,预览已跳过」 | 二次确认后才执行，改用普通客户端游标（命名游标只能 `DECLARE ... SELECT`） | 有结果集时能，没有结果集时不能 |
-
-- **执行即提交**：非只读语句一执行成功就提交，写操作**不可回滚**；
-- **没有结果集**：`UPDATE` / `DELETE` / DDL 执行后提示
-  「语句已执行（影响 N 行），但没有返回结果集，无法作为导出数据源」，影响行数未知时显示 `-1`；
-- **二次确认**：图形界面是「该语句不是只读查询,执行会修改数据库(语句返回结果集时仍会导出),确定使用吗?」，
-  终端向导是一个默认回答为「否」的询问（连续 5 次预览失败会自动中止）。
-
-
-## 与既有能力的关系
-
-- **不裁剪字段**：查询结果就是语句返回的列（MongoDB 由 `projection` 决定），不提供字段子集勾选；
-- **字段映射照常可用**：仍可在「字段映射预览 / 调整」里把查询列映射到目标字段，并做重名校验；
-- **输出命名**：默认取查询标签——SQL 取第一个 `from` 后的表名（`schema.table` 保留为两段），
-  取不到时用「自定义查询」；MongoDB 取集合名。仍可在输出配置里继续改名；
-- **其余能力不变**：目录模式、同名文件纠错、批量写入、数值保真回读校验与失败阻断都照常生效。
-
-
-## 常见错误提示与处理
-
-| 提示 | 原因 | 处理 |
-| :--- | :--- | :--- |
-| `查询语句语法不正确,应以 db.<集合>.find(<filter>) 开头` | MongoDB 语句不是 `db.<集合>.find(...)`（例如写了 `aggregate`） | 按报错附带的示例改写 |
-| `查询语句里 filter 不是合法 JSON: ...` | 值不是合法 JSON 字面量（例如用了 `ObjectId()` / `ISODate()` / `NumberDecimal()` 构造器，或字符串里引号没配对）；键不加引号、单引号字符串、末尾多余逗号本身是**允许**的 | 把构造器换成普通值（如十六进制串直接写 `"507f1f77bcf86cd799439011"`），按报错附带的「规整前的原文」定位改写后重新「校验并预览」 |
-| `查询语句不支持 .aggregate()` / `查询语句在 ... 处有多余内容` | 用了 `find` 之外的方法，或分号后面还有第二条语句 | 只用 `sort` / `limit` / `projection`，一次只写一条语句 |
-| 驱动返回的 SQL 语法错误 / 表或字段不存在 / 权限不足 | 语句本身或连接权限有问题 | 预览阶段就原样报出（图形界面给中文定位提示），改写后重新「校验并预览」 |
-| `该语句不是只读查询,预览已跳过;执行会修改数据库(语句返回结果集时仍会导出)` | 首关键字不在白名单，或 `with` 里含改数据关键字 | 默认拒绝；确需写库时再在二次确认里选「是」 |
-| `语句已执行(影响 N 行),但没有返回结果集,无法作为导出数据源` | 写语句 / DDL 不返回结果集 | 语句已提交；改用 `... RETURNING ...` 或只读查询后再导出 |
-| `集合【X】里没有可用字段,无法作为导出数据源(请检查集合是否为空)` | 空集合，或纯排除式 `projection` 把字段全排掉了 | 确认集合非空，`projection` 改用包含写法 |
-| `没有填写查询语句` | 语句为空就点了「校验并预览」 | 先填一条语句 |
-
-
-# 长浮点数保真与科学计数法规避
-
-高精度数值（多位小数、超大整数、以科学计数法书写的字符串）在任意方向转换后都必须**数值等值、文本一致**。
-实现要点（代码见 `src/dt_numeric.py`）：
-
-| 环节 | 规则 |
-| :--- | :--- |
-| 中间表示 | 一律使用 `decimal.Decimal` 或 Python 任意精度 `int`，**禁止二进制 `float` 作为中转容器**；只能拿到 float 时（Excel 单元格、FLOAT 列）经 `Decimal(str(value))` 取十进制字面量 |
-| 解析 | CSV 文本按 `parse_number` 判定：整数 → `int`，小数 / 科学计数法 → `Decimal`；JSON 读取使用 `parse_float=Decimal`；`007` 这类补零编号识别为**文本**，不丢前导零 |
-| 格式化 | 所有输出统一经 `format_number` 以**定点十进制**呈现：`1.500` 保留尾零、`1E+20` 展开为 `100000000000000000000`，永不出现 `e` / `E` |
-| JSON 写出 | 使用自带序列化器 `dumps_json`（标准库无法直接输出 Decimal 数字），保证 JSON 里的数字同样是定点形式 |
-| Excel 写出 | 建表时 `Decimal` → `NUMERIC/DECIMAL`（不是 DOUBLE）；单元格中超过 15 位有效数字或带尾零的数值按**文本**写出（Excel 内部是双精度，写数值必然被截断/吞尾零） |
-| 数据库写出 | `Decimal` 交给驱动参数化写入（psycopg2 / PyMySQL / pymongo 的 `Decimal128`），不经 float；超出 `Decimal128`(34 位) 或 `int64` 范围的 Mongo 数值自动降级为文本保真 |
-| 回读校验 | 写入后自动回读输出，按字段做「数值等值 + 文本等值」双重比对；发现精度丢失 / 截断 / 科学计数法即**阻断流程并输出差异报告**（可用 `allow_mismatch` 放行，命令行会询问是否保留结果） |
-
-示例输出（输入 `1.500` 与 `12345678901234567890.12345`，经 CSV → JSON → Excel → CSV 往返后完全一致）：
-
-```json
-{
-    "info": {
-        "HeaderFields": ["Id", "Amount"],
-        "Data": {
-            "Row1": [1, 12345678901234567890.12345],
-            "Row2": [2, 1.500]
-        }
-    }
-}
-```
-
-> 校验报告形如：`数值保真校验:通过 (字段 2 个 / 比对 4 个值)`；未通过时列出差异样例，例如
-> `Amount 行1: 输入 '1.500' → 输出 '1.5'(文本表示变化)`。
-
-
-# SSH 连接远程数据库
-
-针对「数据库只监听 `127.0.0.1`、必须先 SSH 登录服务器才能访问」的场景,程序内置 SSH 本地端口转发：
-勾选 **启用 SSH 通道** 后,【数据库连接】里的主机/端口填写**远程服务器上**数据库的地址（通常 `127.0.0.1:5432`）,
-本机连接会自动改走通道端口,导入导出流程与本地数据库完全一致。
+> `HeaderFields` 是字段名列表,`RowN` 是第 N 行(从 1 开始);旧版的**列数组**结构(以字段名作为一级键、值为整列数组)仍可读入,保证老文件兼容。
 
 
 ## 图形界面操作步骤
@@ -642,30 +423,30 @@ db.VirtualProfile.find({"Amount": {"$gt": 1000}})
 3. 点击 **连接 SSH**，状态区显示 `127.0.0.1:<本地端口> → SSH 用户@主机:22 → 127.0.0.1:5432`（见 图 3）；
 4. 回到【数据库连接】填写远程库的地址 / 端口 / 用户名 / 密码 / 数据库名，点击 **连接并加载表**；
 5. 之后按普通流程勾选「表 → 字段」，导出或导入即可（大表导出进度见 图 4、图 5）；
-6. 需要换数据库类型时直接切【数据库类型】：**隧道不会断开**，程序只把转发目标改到新的「主机:端口」，
-   日志提示 `SSH 隧道已重新指向 127.0.0.1:5432`（端口以实际填写为准），再点 **连接并加载表** 即可。
+6. 需要换数据库类型时直接切【数据库类型】：**通道不会断开**，程序只把转发目标改到新的「主机:端口」，
+   日志提示 `SSH 通道已重新指向 127.0.0.1:5432`（端口以实际填写为准），再点 **连接并加载表** 即可。
 
 > 通道只监听本机 `127.0.0.1`，不会对外网暴露端口；点击 **断开 SSH** 或关闭程序会自动释放通道。
 
-> **切换数据库类型不断开隧道**：切换时旧的数据库连接会作废（需要重新「连接并加载表」），但 SSH 通道原样沿用——
+> **切换数据库类型不断开通道**：切换时旧的数据库连接会作废（需要重新「连接并加载表」），但 SSH 通道原样沿用——
 > 引擎侧 `SSHTunnel.retarget` 只重设转发目标，已建立的本地监听端口不受影响；而且每次取连接配置（连接、读取、
-> 预览查询）都会先把隧道目标同步到当前填写的「主机:端口」，端口留空或越界时回退到该类型的默认端口。
+> 预览查询）都会先把通道目标同步到当前填写的「主机:端口」，端口留空或越界时回退到该类型的默认端口。
 
-> **隧道存活检查**：图形界面每 3 秒探活一次，一旦发现隧道断开，日志**只提示一次**
-> `SSH 隧道已断开:<通道信息>,请重新连接`，随后自动清理数据库连接并刷新状态栏与按钮状态；探活只在隧道存在时运行，
+> **通道存活检查**：图形界面每 3 秒探活一次，一旦发现通道断开，日志**只提示一次**
+> `SSH 通道已断开:<通道信息>,请重新连接`，随后自动清理数据库连接并刷新状态栏与按钮状态；探活只在通道存在时运行，
 > 因此不会反复刷屏。点 **连接 SSH** 重建通道即可继续。
 
 
 ## 命令行向导
 
-`./data_transformer.sh` 在询问连接参数时会先问「是否通过 SSH 通道连接远程服务器」,交互与图形界面一致;
-加 `--demo` 可直接预填上表参数（完整交互见 图 11、图 12）：
+`./data_transformer.sh` 在询问连接参数时会先问「是否通过 SSH 通道连接远程服务器」，交互与图形界面一致；
+加 `--demo` 可直接预填 `Demo/Example.txt` 里的 SSH + PostgreSQL 示例参数：
 
 ```bash
 ./data_transformer.sh --demo
 ```
 
-> SSH 功能依赖 `paramiko`（`pip install paramiko`）。未安装时按钮置灰并给出提示,文件互转不受影响。
+> SSH 功能依赖 `paramiko`（`pip install paramiko`）。未安装时按钮置灰并给出提示，文件互转不受影响。
 
 
 # 启动参数
@@ -736,14 +517,6 @@ Linux / macOS 下等价的写法：
 
 程序运行日志显示在主界面"④ 运行日志"区域，可按日志级别着色显示，并支持 **一键清空**。
 
-**出错时只输出一段中文定位提示**：日志与弹窗给的是 `describe_db_error` / `describe_ssh_error` 生成的
-中文说明（通常一到两行，指明是主机 / 端口 / 用户名 / 密码 / 数据库名 / 权限哪一环出错，末行保留「原始错误: …」），
-默认**不再打印 Python 回溯与源码行号**，避免把栈信息直接摊给最终用户。
-若当前启用了 SSH 隧道且错误特征像连接中断（`abort` / `timeout` / `timed out` / `refused`），
-会再追加一句「当前启用了 SSH 隧道,隧道可能已断开,请检查【连接 SSH】状态后重试」。
-
-需要完整回溯排查时设置环境变量 `DT_DEBUG=1` 后重跑：
-
 ```powershell
 set DT_DEBUG=1
 DataTransformer.exe --selftest
@@ -791,29 +564,6 @@ Linux / macOS: $XDG_CONFIG_HOME/DataTransformer/config.json（默认 ~/.config/D
   请先用文本编辑器查看，或改用 JSON 格式导出。
 
 
-# 测试
-
-```bash
-python -m pytest tests/ -q          # 全部单元测试与集成测试(当前 189 项)
-python -m pytest tests/test_numeric.py -q   # 长浮点数保真专项
-python -m src.dt_core               # 无界面自检(等价 --selftest),结果写入 selftest.log
-```
-
-| 测试文件 | 覆盖内容 |
-| :--- | :--- |
-| `tests/test_numeric.py` | Decimal 解析 / 定点格式化 / 尾零与前导零规则 / JSON 定点序列化 / Excel 单元格策略 / 保真报告与多重集比对 |
-| `tests/test_engine.py` | 长浮点数跨 xlsx / json / csv 往返、科学计数法归一化、保真校验阻断与放行、字段与名称映射、多表输出、跳过与目录模式、错误护栏 |
-| `tests/test_mongo.py` | MongoDB 值转换（Decimal128 / int64 溢出 / 嵌套结构 / 不安全键名）、`_id` 处理，以及**真实服务端**往返（本机无 mongod 时自动跳过） |
-| `tests/test_cli.py` | 命令行向导端到端交互（管道驱动）：完整流程、输出路径、取消不落盘、无栈回溯 |
-| `tests/test_gui.py` | 图形界面关键逻辑（离屏运行）：窗口构造、三种数据库配置切换、SSH 通道改写连接目标、字段映射、层级勾选、进度条生命周期 |
-| `tests/test_query.py` | 自定义查询语句：SQL 只读判定（含 `WITH` 里改数据 CTE 的加固）、自由语句的流式 / 普通游标分流与提交语义、无结果集异常、MongoDB `find` 链解析与错误提示、**mongosh 兼容（裸键 / 单引号 / 尾逗号）**、`preview_query` 非只读不执行、查询源端到端转 CSV |
-
-> 逐文件用例数：`test_cli.py` 17 / `test_engine.py` 21 / `test_gui.py` 41 / `test_mongo.py` 18 /
-> `test_numeric.py` 27 / `test_query.py` 65，合计 **189**。
-
-> 集成测试需要真实环境：PostgreSQL / MySQL / MongoDB 用例在缺少服务或环境变量时会自动跳过，不会导致失败。
-
-
 # 常见问题
 
 | 现象 | 处理办法 |
@@ -828,7 +578,7 @@ python -m src.dt_core               # 无界面自检(等价 --selftest),结果�
 | `无法连接 MongoDB ... ServerSelectionTimeoutError` | 检查 mongod 是否启动、端口与 `authSource`；远程场景可勾选 SSH 通道 |
 | 百万行数据导入很慢 | 调大「每批行数」（默认 1000，可设 5000~20000）；数据库侧注意 `max_allowed_packet`（MySQL）与磁盘 IO |
 | 出错时日志只有一段中文提示，想定位到具体代码 | 默认不打印回溯与源码行号；启动前设置环境变量 `DT_DEBUG=1`（Windows 下 `set DT_DEBUG=1`，Linux / macOS 下 `DT_DEBUG=1 ./data_transformer.sh`）后重跑，日志会追加完整 `traceback` |
-| 日志出现 `SSH 隧道已断开:…,请重新连接` | 3 秒探活发现通道已断，程序已自动清理数据库连接并刷新按钮；点 **连接 SSH** 重建通道后重新「连接并加载表」（切换数据库类型本身不会断开隧道） |
+| 日志出现 `SSH 通道已断开:…,请重新连接` | 3 秒探活发现通道已断，程序已自动清理数据库连接并刷新按钮；点 **连接 SSH** 重建通道后重新「连接并加载表」（切换数据库类型本身不会断开通道） |
 
 
 # 验收清单
@@ -846,7 +596,7 @@ python -m src.dt_core               # 无界面自检(等价 --selftest),结果�
 - [x] 单元测试与集成测试（含长浮点数专项与真实数据库往返）；
 - [x] 支持自由填写 SQL / MongoDB 查询语句并先校验预览（图形界面「自定义查询…」与终端向导「② 自由填写查询语句」）；
 - [x] 自定义查询对话框里内置的 SQL / MongoDB 示例可直接使用（MongoDB 示例为 mongosh 写法：裸键、单引号、尾逗号均兼容）；
-- [x] 切换数据库类型不断开 SSH 隧道（只重设转发目标），隧道意外断开时日志只提示一次并自动清理连接与按钮状态；
+- [x] 切换数据库类型不断开 SSH 通道（只重设转发目标），通道意外断开时日志只提示一次并自动清理连接与按钮状态；
 
 
 # AI 辅助开发
